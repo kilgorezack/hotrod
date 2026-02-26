@@ -1,0 +1,23 @@
+{
+  "name": "hotrod",
+  "version": "0.1.0",
+  "description": "Hyperlocal Open-source Telecom Reach & Overbuild Dashboard",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"node server/index.js\"",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "NODE_ENV=production node server/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "topojson-client": "^3.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "vite": "^5.2.0"
+  }
+}

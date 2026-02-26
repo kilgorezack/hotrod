@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HOTROD — Broadband Coverage Dashboard</title>
+  <meta name="description" content="Hyperlocal Open-source Telecom Reach & Overbuild Dashboard — compare unlimited broadband provider coverage maps side by side." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.css" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar">
+
+    <!-- Header -->
+    <header class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="14" cy="18" r="2.5" fill="currentColor"/>
+            <path d="M14 18 L14 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M8 12 Q14 6 20 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+            <path d="M5 9 Q14 1 23 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.6"/>
+            <path d="M11 15 Q14 12 17 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">HOTROD</span>
+          <span class="brand-sub">Broadband Coverage</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Provider list view (default) -->
+    <div id="provider-view" class="sidebar-view active">
+      <div class="sidebar-actions">
+        <button id="add-provider-btn" class="btn-add-provider" aria-label="Add a provider to the map">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          Add Provider
+        </button>
+      </div>
+
+      <div id="provider-list" class="provider-list">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">
+            <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <rect x="4" y="4" width="32" height="32" rx="8" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.3"/>
+              <circle cx="20" cy="20" r="4" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+              <path d="M12 20 Q20 10 28 20" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.5" stroke-linecap="round"/>
+              <path d="M7 20 Q20 5 33 20" stroke="currentColor" stroke-width="1.5" fill="none" opacity="0.3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <p class="empty-title">No providers added</p>
+          <p class="empty-desc">Click <strong>Add Provider</strong> to compare broadband coverage on the map.</p>
+        </div>
+      </div>
+
+      <footer class="sidebar-footer">
+        <div class="footer-data">
+          <span class="footer-label">Data source</span>
+          <a href="https://opendata.fcc.gov" target="_blank" rel="noopener" class="footer-link">FCC Form 477 · opendata.fcc.gov</a>
+        </div>
+        <div class="footer-data">
+          <span class="footer-label">Coverage as of</span>
+          <span class="footer-value">Dec 2020 (latest public)</span>
+        </div>
+      </footer>
+    </div>
+
+    <!-- Add Provider panel (slides over) -->
+    <div id="add-view" class="sidebar-view" aria-hidden="true">
+      <div class="add-header">
+        <button id="back-btn" class="btn-back" aria-label="Back to provider list">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3L5 8l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Add Provider
+        </button>
+      </div>
+
+      <div class="add-content">
+        <!-- Step 1: Provider Search -->
+        <div class="add-section" id="search-section">
+          <label class="section-label" for="provider-search">Provider name</label>
+          <div class="search-wrapper">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input
+              type="search"
+              id="provider-search"
+              class="search-input"
+              placeholder="Search providers..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div class="search-spinner" id="search-spinner" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="20" stroke-dashoffset="10"/>
+              </svg>
+            </div>
+          </div>
+          <div id="search-results" class="search-results" role="listbox" aria-label="Provider search results"></div>
+        </div>
+
+        <!-- Step 2: Selected provider info -->
+        <div class="add-section" id="selected-provider-section" hidden>
+          <div class="selected-provider" id="selected-provider-display"></div>
+        </div>
+
+        <!-- Step 3: Technology type -->
+        <div class="add-section" id="tech-section" hidden>
+          <label class="section-label">Technology type</label>
+          <div id="tech-chips" class="tech-chips" role="group" aria-label="Technology types"></div>
+          <div class="tech-loading" id="tech-loading" hidden>
+            <span class="loading-text">Loading available technologies...</span>
+          </div>
+          <div class="tech-empty" id="tech-empty" hidden>
+            <span class="loading-text">No technology data found for this provider.</span>
+          </div>
+        </div>
+
+        <!-- Add to map button -->
+        <div class="add-section add-actions" id="add-actions-section" hidden>
+          <button id="add-to-map-btn" class="btn-primary" disabled>
+            Add to Map
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Map container -->
+  <div id="map" role="application" aria-label="Broadband coverage map"></div>
+
+  <!-- Map legend (floating) -->
+  <div id="map-legend" class="map-legend" hidden aria-label="Map legend">
+    <div class="legend-title">Coverage Layers</div>
+    <div id="legend-items" class="legend-items"></div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
+
+  <!-- MapKit JS -->
+  <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.js" crossorigin async data-callback="hotrodMapKitReady"></script>
+
+  <!-- App -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
