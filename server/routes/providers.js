@@ -18,7 +18,7 @@ router.get('/search', async (req, res) => {
   try {
     const rows = await searchProviders(q, limit);
     const providers = rows.map((r) => ({
-      id: r.providerid,
+      id: r.provider_id,
       name: r.providername,
     }));
     res.json({ providers });

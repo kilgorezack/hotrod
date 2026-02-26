@@ -1,9 +1,12 @@
 /**
  * FCC opendata.fcc.gov Socrata API client
  *
- * Dataset IDs used:
- *   etum-4rg3  — Fixed Broadband Deployment: Provider Name Lookup
- *   4kuc-phrr  — Fixed Broadband Deployment: June 2020 V1 (census block level)
+ * Dataset used:
+ *   4kuc-phrr — Fixed Broadband Deployment: June 2020 V1
+ *               (census block level; has provider_id, providername, techcode, stateabbr)
+ *
+ * Note: substr/left string functions are not supported in this Socrata instance,
+ * so coverage is aggregated to the state level (stateabbr GROUP BY).
  *
  * Socrata SoQL docs: https://dev.socrata.com/docs/queries/
  */
@@ -11,12 +14,7 @@
 import fetch from 'node-fetch';
 
 const SOCRATA_BASE = 'https://opendata.fcc.gov/resource';
-
-// Provider name lookup dataset
-const PROVIDERS_DATASET = 'etum-4rg3';
-
-// Coverage dataset (census block level, Jun 2020)
-const COVERAGE_DATASET = '4kuc-phrr';
+const DATASET = '4kuc-phrr';
 
 // In-memory cache: key → { data, expiresAt }
 const cache = new Map();
@@ -35,23 +33,17 @@ function setCached(key, data, ttlMs) {
   cache.set(key, { data, expiresAt: Date.now() + ttlMs });
 }
 
-/**
- * Build a Socrata query URL with SoQL parameters.
- */
-function buildUrl(dataset, params) {
-  const url = new URL(`${SOCRATA_BASE}/${dataset}.json`);
+function buildUrl(params) {
+  const url = new URL(`${SOCRATA_BASE}/${DATASET}.json`);
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null) url.searchParams.set(k, v);
   }
   return url.toString();
 }
 
-/**
- * Fetch from Socrata with error handling.
- */
 async function socrataFetch(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
     const res = await fetch(url, {
       headers: {
@@ -62,7 +54,7 @@ async function socrataFetch(url) {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`FCC API error ${res.status}: ${text.slice(0, 200)}`);
+      throw new Error(`FCC API error ${res.status}: ${text.slice(0, 300)}`);
     }
     return res.json();
   } finally {
@@ -70,41 +62,43 @@ async function socrataFetch(url) {
   }
 }
 
-// ─── Provider Search ────────────────────────────────────────────────────────
+// ─── Provider Search ─────────────────────────────────────────────────────────
 
 /**
- * Search providers by name (case-insensitive partial match).
- * Returns array of { providerid, providername }.
+ * Search providers by full-text match using Socrata $q (uses FTS index, fast).
+ * Works best with complete words: "comcast", "verizon", "spectrum", etc.
+ * Returns array of { provider_id, providername }.
  */
 export async function searchProviders(query, limit = 20) {
   const key = `providers:search:${query.toLowerCase()}:${limit}`;
   const cached = getCached(key);
   if (cached) return cached;
 
-  // Escape single quotes for SoQL
-  const escaped = query.replace(/'/g, "''");
-  const url = buildUrl(PROVIDERS_DATASET, {
-    '$select': 'providerid,providername',
-    '$where': `lower(providername) like '%${escaped.toLowerCase()}%'`,
-    '$order': 'providername ASC',
-    '$limit': limit,
+  // $q uses the full-text search index — much faster than $where LIKE + $group.
+  // Fetch 500 rows and deduplicate provider_id in Node to get all matching entities.
+  const url = buildUrl({
+    '$q': query,
+    '$select': 'provider_id,providername',
+    '$limit': 500,
   });
 
   const data = await socrataFetch(url);
 
-  // Deduplicate by providerid
+  // Deduplicate by provider_id, then cap at limit
   const seen = new Set();
-  const unique = data.filter((r) => {
-    if (!r.providerid || seen.has(r.providerid)) return false;
-    seen.add(r.providerid);
-    return true;
-  });
+  const unique = data
+    .filter((r) => {
+      if (!r.provider_id || seen.has(r.provider_id)) return false;
+      seen.add(r.provider_id);
+      return true;
+    })
+    .slice(0, limit);
 
   setCached(key, unique, 60 * 60 * 1000); // 1 hour
   return unique;
 }
 
-// ─── Technologies for a Provider ────────────────────────────────────────────
+// ─── Technologies for a Provider ─────────────────────────────────────────────
 
 /**
  * Get available technology codes for a provider.
@@ -115,9 +109,9 @@ export async function getProviderTechnologies(providerId) {
   const cached = getCached(key);
   if (cached) return cached;
 
-  const url = buildUrl(COVERAGE_DATASET, {
+  const url = buildUrl({
     '$select': 'techcode',
-    '$where': `providerid = '${providerId}'`,
+    '$where': `provider_id = '${providerId}'`,
     '$group': 'techcode',
     '$order': 'techcode ASC',
     '$limit': 50,
@@ -128,26 +122,26 @@ export async function getProviderTechnologies(providerId) {
   return data;
 }
 
-// ─── Coverage by County ──────────────────────────────────────────────────────
+// ─── Coverage by State ────────────────────────────────────────────────────────
 
 /**
- * Get the list of unique county FIPS codes where a provider+tech offers service.
- * Returns array of { stateabbr, countycode }.
+ * Get the list of unique state abbreviations where a provider+tech offers service.
+ * Returns array of { stateabbr }.
  *
- * county FIPS = stateabbr + countycode (2+3 digits).
- * We aggregate census-block entries up to county level.
+ * Note: FCC's Socrata instance does not support substr/left, so county-level
+ * aggregation is not available via SoQL. State-level is used instead.
  */
-export async function getProviderCountyCoverage(providerId, techCode) {
-  const key = `coverage:county:${providerId}:${techCode}`;
+export async function getProviderStateCoverage(providerId, techCode) {
+  const key = `coverage:state:${providerId}:${techCode}`;
   const cached = getCached(key);
   if (cached) return cached;
 
-  const url = buildUrl(COVERAGE_DATASET, {
-    '$select': 'stateabbr,countycode',
-    '$where': `providerid = '${providerId}' AND techcode = '${techCode}'`,
-    '$group': 'stateabbr,countycode',
+  const url = buildUrl({
+    '$select': 'stateabbr',
+    '$where': `provider_id = '${providerId}' AND techcode = '${techCode}'`,
+    '$group': 'stateabbr',
     '$order': 'stateabbr ASC',
-    '$limit': 5000,
+    '$limit': 60,
   });
 
   const data = await socrataFetch(url);

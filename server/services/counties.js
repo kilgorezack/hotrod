@@ -1,58 +1,43 @@
 /**
- * US County GeoJSON service
+ * US State GeoJSON service
  *
- * Downloads and caches US county boundaries from the US Census TIGER/Line
- * simplified GeoJSON. Returns a GeoJSON FeatureCollection indexed by
- * county FIPS code for fast lookup.
+ * Loads US state boundaries from the us-atlas topojson package and
+ * builds a lookup index by 2-digit state FIPS code.
  *
- * County FIPS = 5-digit code: 2-digit state + 3-digit county.
- * Stored in properties.GEOID or properties.GEO_ID in Census files.
+ * State feature IDs in us-atlas are 2-digit FIPS strings: '01', '06', etc.
  */
 
 import fetch from 'node-fetch';
-import { createRequire } from 'module';
 
-// US Census Bureau simplified county boundaries (~1.5 MB GeoJSON)
-const COUNTY_GEOJSON_URL =
-  'https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json';
+const STATES_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json';
 
-// Fallback: low-res county file from Eric Celeste's topojson
-const COUNTIES_URL =
-  'https://cdn.jsdelivr.net/npm/us-atlas@3/counties-10m.json';
+let stateGeoJSONCache = null;   // Full GeoJSON FeatureCollection
+let stateIndexCache = null;     // Map: '06' → Feature
 
-let countyGeoJSONCache = null;       // Full GeoJSON FeatureCollection
-let countyIndexCache = null;         // Map: FIPS → Feature
-let stateGeoJSONCache = null;
+async function loadStates() {
+  if (stateGeoJSONCache) return stateGeoJSONCache;
 
-/**
- * Load and parse US counties from the us-atlas topojson package.
- * We inline a fetch so no local file is required.
- *
- * The topojson file contains two objects: "counties" and "states".
- * We use topojson-client to convert to GeoJSON.
- */
-async function loadCounties() {
-  if (countyGeoJSONCache) return countyGeoJSONCache;
-
-  // Dynamically import topojson-client (ESM)
   const topojson = await import('topojson-client');
 
-  const res = await fetch(COUNTIES_URL, { timeout: 20000 });
-  if (!res.ok) throw new Error(`Failed to load county data: ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let topology;
+  try {
+    const res = await fetch(STATES_URL, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Failed to load state boundaries: ${res.status}`);
+    topology = await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 
-  const topology = await res.json();
+  const geojson = topojson.feature(topology, topology.objects.states);
+  stateGeoJSONCache = geojson;
 
-  // Convert counties object from TopoJSON to GeoJSON
-  const geojson = topojson.feature(topology, topology.objects.counties);
-
-  countyGeoJSONCache = geojson;
-
-  // Build FIPS index
-  countyIndexCache = new Map();
+  // Build index: '06' → Feature
+  stateIndexCache = new Map();
   for (const feature of geojson.features) {
-    const fips = feature.id; // us-atlas uses numeric id = 5-digit FIPS
-    if (fips !== undefined) {
-      countyIndexCache.set(String(fips).padStart(5, '0'), feature);
+    if (feature.id !== undefined) {
+      stateIndexCache.set(String(feature.id).padStart(2, '0'), feature);
     }
   }
 
@@ -60,46 +45,32 @@ async function loadCounties() {
 }
 
 /**
- * Get the full county GeoJSON FeatureCollection.
- * Used by /api/geo/counties endpoint.
+ * Get the full state GeoJSON FeatureCollection.
+ * Used by /api/geo/counties endpoint (kept for API compatibility).
  */
 export async function getAllCounties() {
-  return loadCounties();
+  return loadStates();
 }
 
 /**
- * Given an array of coverage rows [{stateabbr, countycode}],
- * return a GeoJSON FeatureCollection of only the covered counties.
- *
- * stateabbr: e.g. "CA", "TX"
- * countycode: 3-digit county FIPS, e.g. "001", "075"
- *
- * We look up state FIPS from the stateabbr → FIPS mapping below.
+ * Given an array of coverage rows [{ stateabbr }],
+ * return a GeoJSON FeatureCollection of matching state polygons.
  */
 export async function buildCoverageGeoJSON(coverageRows) {
-  await loadCounties();
+  await loadStates();
 
   const features = [];
-
   for (const row of coverageRows) {
-    const stateFips = STATE_FIPS[row.stateabbr?.toUpperCase()];
-    if (!stateFips) continue;
-
-    // Pad county code to 3 digits
-    const countyPart = String(row.countycode || '').padStart(3, '0');
-    const fullFips = stateFips + countyPart;
-
-    const feature = countyIndexCache.get(fullFips);
+    const fips = STATE_FIPS[row.stateabbr?.toUpperCase()];
+    if (!fips) continue;
+    const feature = stateIndexCache.get(fips);
     if (feature) features.push(feature);
   }
 
-  return {
-    type: 'FeatureCollection',
-    features,
-  };
+  return { type: 'FeatureCollection', features };
 }
 
-// ─── State Abbreviation → FIPS Code Mapping ──────────────────────────────────
+// ─── State Abbreviation → FIPS Mapping ───────────────────────────────────────
 
 const STATE_FIPS = {
   AL: '01', AK: '02', AZ: '04', AR: '05', CA: '06',

@@ -98,11 +98,11 @@ export function updateCardCoverage(id, techCode, countyCount) {
   if (loadingEl) loadingEl.style.display = 'none';
   if (coverageEl) coverageEl.hidden = false;
 
-  const total = 3143; // approximate US county count
-  const pct = Math.round((countyCount / total) * 100 * 10) / 10;
+  const total = 51; // 50 states + DC
+  const pct = Math.round((countyCount / total) * 100);
 
   if (fillEl) fillEl.style.width = `${Math.min(pct, 100)}%`;
-  if (labelEl) labelEl.textContent = `${countyCount.toLocaleString()} counties (${pct}% coverage)`;
+  if (labelEl) labelEl.textContent = `${countyCount} / ${total} states (${pct}% coverage)`;
 }
 
 /**

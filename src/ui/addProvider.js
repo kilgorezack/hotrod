@@ -83,7 +83,7 @@ function handleSearchInput() {
   const q = searchInput.value.trim();
   clearTimeout(searchTimeout);
 
-  if (q.length < 2) {
+  if (q.length < 3) {
     searchResults.innerHTML = '';
     searchResults.classList.remove('visible');
     return;

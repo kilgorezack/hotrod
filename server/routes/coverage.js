@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import { getProviderCountyCoverage } from '../services/fcc.js';
+import { getProviderStateCoverage } from '../services/fcc.js';
 import { buildCoverageGeoJSON } from '../services/counties.js';
 
 const router = Router();
 
 /**
- * GET /api/coverage?provider_id=130077&tech_code=50
+ * GET /api/coverage?provider_id=72917&tech_code=50
  *
- * Returns a GeoJSON FeatureCollection of county polygons
+ * Returns a GeoJSON FeatureCollection of state polygons
  * where the given provider offers service with the given tech.
  */
 router.get('/', async (req, res) => {
@@ -18,24 +18,22 @@ router.get('/', async (req, res) => {
   }
 
   try {
-    // Step 1: Get county FIPS list from FCC data
-    const coverageRows = await getProviderCountyCoverage(provider_id, tech_code);
+    const coverageRows = await getProviderStateCoverage(provider_id, tech_code);
 
     if (!coverageRows.length) {
       return res.json({
         type: 'FeatureCollection',
         features: [],
-        meta: { countyCount: 0 },
+        meta: { stateCount: 0 },
       });
     }
 
-    // Step 2: Build GeoJSON from county boundaries
     const geojson = await buildCoverageGeoJSON(coverageRows);
 
     res.json({
       ...geojson,
       meta: {
-        countyCount: geojson.features.length,
+        stateCount: geojson.features.length,
         dataDate: 'June 2020',
       },
     });

@@ -84,7 +84,7 @@ async function handleProviderAdd(provider, techCode) {
   try {
     const geojson = await getCoverageGeoJSON(provider.id, techCode);
 
-    const countyCount = geojson?.meta?.countyCount ?? geojson?.features?.length ?? 0;
+    const countyCount = geojson?.meta?.stateCount ?? geojson?.features?.length ?? 0;
 
     if (!geojson?.features?.length) {
       showToast(`No coverage data found for ${provider.name} — ${techLabel(techCode)}.`, 'info');
