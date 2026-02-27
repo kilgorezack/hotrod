@@ -33,6 +33,11 @@ async function init() {
     console.error('[map init]', err);
     showToast('Map failed to initialize. Check your MapKit token.', 'error', 0);
   }
+
+  // Fail fast in production if the backend is misrouted/misconfigured.
+  // Without the API, provider search/tech probing/tiles will fail and coverage
+  // will show as "unavailable" with little context.
+  checkApiHealth();
 }
 
 // ─── Provider Management ─────────────────────────────────────────────────────
@@ -125,6 +130,19 @@ function techLabel(code) {
     '90': 'Power Line', '300': '5G NR',
   };
   return LABELS[String(code)] || `Tech ${code}`;
+}
+
+async function checkApiHealth() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch('/api/health', { signal: controller.signal });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    console.warn('[api health]', err);
+    showToast('Backend API unavailable — provider coverage may not load.', 'error', 8000);
+  }
 }
 
 // ─── Start ───────────────────────────────────────────────────────────────────
