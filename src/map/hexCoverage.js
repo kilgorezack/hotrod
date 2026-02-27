@@ -98,9 +98,17 @@ export async function fetchHexCoverage(providerId, techCode) {
     `${features.length} unique hex features`
   );
 
-  const result = features.length > 0
-    ? { type: 'FeatureCollection', features }
-    : null;
+  const result = {
+    type: 'FeatureCollection',
+    features,
+    meta: {
+      tileStats: {
+        tilesWithData,
+        tilesEmpty,
+        tilesErrored,
+      },
+    },
+  };
 
   _cache.set(key, result);
   return result;

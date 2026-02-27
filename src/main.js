@@ -68,21 +68,25 @@ async function handleProviderAdd(provider, techCode) {
   showToast(`Loading coverage for ${provider.name}…`, 'info', 2500);
 
   try {
-    let geojson = null;
+    let geojson = await fetchHexCoverage(provider.id, techCode);
     let dataSource = 'hex';
 
-    // Providers discovered from Form 477 won't have reliable BDC hex data.
-    // Skip expensive hex tile probing and go directly to state polygons.
-    if (provider.techSource !== 'form477') {
-      geojson = await fetchHexCoverage(provider.id, techCode);
+    const tileErrors = geojson?.meta?.tileStats?.tilesErrored ?? 0;
+    const hasHex = (geojson?.features?.length ?? 0) > 0;
+
+    // If all tile attempts errored out, do not silently mask the issue with
+    // state polygons; this would look like valid coverage but be inaccurate.
+    if (!hasHex && tileErrors > 0) {
+      throw new Error(`Hex tile fetch failed for ${provider.id}:${techCode} (${tileErrors} tile errors)`);
     }
 
-    if (!geojson?.features?.length) {
+    if (!hasHex) {
       if (provider.techSource === 'form477') {
-        console.info(`[coverage] Provider ${provider.id} techs sourced from Form 477 — using state polygons`);
-      } else {
-        console.info(`[coverage] No BDC hex data for ${provider.id}:${techCode} — falling back to state polygons`);
+        showToast(`No FCC hex data found for ${provider.name} — ${techLabel(techCode)}.`, 'info');
+        updateCardCoverage(provider.id, techCode, 0, 'hex');
+        return;
       }
+      console.info(`[coverage] No BDC hex data for ${provider.id}:${techCode} — falling back to state polygons`);
       geojson = await getCoverageGeoJSON(provider.id, techCode);
       dataSource = 'state';
     }

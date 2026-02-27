@@ -134,7 +134,8 @@ export async function searchProviders(query, limit = 20) {
     .map(r => ({ id: r.provider_id, name: r.providername }));
 
   console.warn(`[fcc] Socrata provider search fallback — "${query}" → ${providers.length} results (IDs are Form 477, NOT BDC — tiles may be empty)`);
-  setCached(key, providers, 60 * 60 * 1000);
+  // Keep fallback cache short so we recover quickly when BDC search is healthy again.
+  setCached(key, providers, 5 * 60 * 1000);
   return providers;
 }
 
