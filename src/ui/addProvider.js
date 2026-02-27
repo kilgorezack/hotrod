@@ -156,17 +156,7 @@ async function selectProvider(provider) {
   searchResults.classList.remove('visible');
   searchInput.value = '';
 
-  // Show selected provider display
-  const initial = provider.name.charAt(0).toUpperCase();
-  selectedDisplay.innerHTML = `
-    <div class="selected-provider-icon">${escapeHtml(initial)}</div>
-    <div class="selected-provider-info">
-      <div class="selected-provider-name">${escapeHtml(provider.name)}</div>
-      <div class="selected-provider-id">ID: ${escapeHtml(provider.id)}</div>
-    </div>
-    <button class="btn-change-provider">Change</button>
-  `;
-  selectedDisplay.querySelector('.btn-change-provider').addEventListener('click', resetToSearch);
+  renderSelectedProvider(provider);
   selectedSection.hidden = false;
 
   // Load technology options
@@ -178,9 +168,20 @@ async function selectProvider(provider) {
   addToMapBtn.disabled = true;
 
   try {
-    const techData = await getProviderTechnologies(provider.id);
+    const techData = await getProviderTechnologies(provider.id, provider.name);
     const codes = techData.technologies || [];
-    selectedProvider = { ...provider, techSource: techData.source || 'unknown' };
+    selectedProvider = {
+      ...provider,
+      id: techData.providerId || provider.id,
+      name: techData.providerName || provider.name,
+      techSource: techData.source || 'unknown',
+    };
+    renderSelectedProvider(selectedProvider);
+
+    if (techData.resolvedFromProviderId) {
+      showToast(`Matched to FCC BDC provider ID ${selectedProvider.id} for hex coverage.`, 'info', 3500);
+    }
+
     techLoading.hidden = true;
 
     if (!codes.length) {
@@ -196,6 +197,19 @@ async function selectProvider(provider) {
     techEmpty.textContent = 'Failed to load technology data.';
     console.error('[tech]', err);
   }
+}
+
+function renderSelectedProvider(provider) {
+  const initial = provider.name.charAt(0).toUpperCase();
+  selectedDisplay.innerHTML = `
+    <div class="selected-provider-icon">${escapeHtml(initial)}</div>
+    <div class="selected-provider-info">
+      <div class="selected-provider-name">${escapeHtml(provider.name)}</div>
+      <div class="selected-provider-id">ID: ${escapeHtml(provider.id)}</div>
+    </div>
+    <button class="btn-change-provider">Change</button>
+  `;
+  selectedDisplay.querySelector('.btn-change-provider').addEventListener('click', resetToSearch);
 }
 
 function resetToSearch() {

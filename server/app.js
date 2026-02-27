@@ -72,10 +72,11 @@ app.get('/api/providers-search', async (req, res) => {
 
 app.get('/api/providers-technologies', async (req, res) => {
   const providerId = String(req.query.provider_id || '').trim();
+  const providerName = String(req.query.provider_name || '').trim();
   if (!providerId) return res.status(400).json({ error: 'Provider ID required' });
 
   try {
-    const data = await resolveProviderTechnologies(providerId);
+    const data = await resolveProviderTechnologies(providerId, providerName);
     res.json(data);
   } catch (err) {
     console.error('[providers-technologies]', err.message);

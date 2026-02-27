@@ -18,13 +18,21 @@ export async function searchProviders(query) {
  * @param {string} providerId
  * @returns {Promise<string[]>}
  */
-export async function getProviderTechnologies(providerId) {
-  const url = `${API_BASE}/providers-technologies?provider_id=${encodeURIComponent(providerId)}`;
+export async function getProviderTechnologies(providerId, providerName = '') {
+  const params = new URLSearchParams({
+    provider_id: String(providerId),
+  });
+  if (providerName) params.set('provider_name', providerName);
+
+  const url = `${API_BASE}/providers-technologies?${params.toString()}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Technology fetch failed: ${res.status}`);
   const data = await res.json();
   return {
     technologies: data.technologies || [],
     source: data.source || 'unknown',
+    providerId: data.providerId ? String(data.providerId) : String(providerId),
+    providerName: data.providerName || providerName,
+    resolvedFromProviderId: data.resolvedFromProviderId || null,
   };
 }

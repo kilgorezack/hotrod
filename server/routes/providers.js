@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { searchProviders, getProviderTechnologies } from '../services/fcc.js';
+import { searchProviders, getProviderTechnologies, searchBdcProviders } from '../services/fcc.js';
 
 const router = Router();
 
@@ -29,6 +29,7 @@ const PROBE_TILES = [
 const PROBE_TECHS = ['10', '40', '50', '60', '70'];
 
 const techProbeCache = new Map();
+const bdcNameResolutionCache = new Map();
 
 /**
  * Detect available tech codes for a provider by checking whether
@@ -67,18 +68,117 @@ async function probeTechs(providerId) {
   return techs;
 }
 
+function normalizeName(str) {
+  return String(str || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function meaningfulTokens(name) {
+  const STOP = new Set([
+    'inc', 'llc', 'ltd', 'corp', 'co', 'company', 'corporation', 'communications',
+    'communication', 'the', 'of', 'and', 'wireless', 'telephone', 'broadband',
+    'network', 'networks', 'services', 'service', 'holdings', 'group',
+  ]);
+  return normalizeName(name)
+    .split(' ')
+    .filter((token) => token.length >= 3 && !STOP.has(token));
+}
+
+function scoreNameMatch(form477Name, bdcName) {
+  const left = meaningfulTokens(form477Name);
+  if (!left.length) return 0;
+  const right = new Set(meaningfulTokens(bdcName));
+  let hits = 0;
+  for (const token of left) {
+    if (right.has(token)) hits += 1;
+  }
+  return hits;
+}
+
+async function resolveBdcProviderByName(providerName) {
+  const cacheKey = normalizeName(providerName);
+  if (bdcNameResolutionCache.has(cacheKey)) {
+    return bdcNameResolutionCache.get(cacheKey);
+  }
+
+  const tokens = meaningfulTokens(providerName);
+  if (!tokens.length) {
+    bdcNameResolutionCache.set(cacheKey, null);
+    return null;
+  }
+
+  const candidateQueries = [];
+  candidateQueries.push(tokens.slice(0, 2).join(' '));
+  candidateQueries.push(tokens[0]);
+
+  const dedup = [...new Set(candidateQueries.filter(Boolean))];
+  for (const query of dedup) {
+    try {
+      const rows = await searchBdcProviders(query, 25);
+      if (!rows.length) continue;
+
+      let best = null;
+      let bestScore = 0;
+      for (const row of rows) {
+        const score = scoreNameMatch(providerName, row.name);
+        if (score > bestScore) {
+          best = row;
+          bestScore = score;
+        }
+      }
+
+      const minScore = Math.min(2, meaningfulTokens(providerName).length);
+      if (best && bestScore >= minScore) {
+        bdcNameResolutionCache.set(cacheKey, best);
+        return best;
+      }
+    } catch (err) {
+      console.warn('[providers] BDC name resolution failed:', err.message);
+    }
+  }
+
+  bdcNameResolutionCache.set(cacheKey, null);
+  return null;
+}
+
 export async function resolveProviderSearch(query, limit = 20) {
   return searchProviders(query, limit);
 }
 
-export async function resolveProviderTechnologies(providerId) {
+export async function resolveProviderTechnologies(providerId, providerName = '') {
+  let resolvedBdc = null;
+
   try {
     const techs = await probeTechs(providerId);
     if (techs.length > 0) {
-      return { technologies: techs, source: 'bdc' };
+      return { technologies: techs, source: 'bdc', providerId };
     }
   } catch (err) {
     console.warn('[providers/:id/technologies] BDC probe failed:', err.message);
+  }
+
+  if (providerName) {
+    resolvedBdc = await resolveBdcProviderByName(providerName);
+    if (resolvedBdc && resolvedBdc.id !== String(providerId)) {
+      try {
+        const techs = await probeTechs(resolvedBdc.id);
+        if (techs.length > 0) {
+          return {
+            technologies: techs,
+            source: 'bdc_resolved',
+            providerId: resolvedBdc.id,
+            providerName: resolvedBdc.name,
+            resolvedFromProviderId: String(providerId),
+          };
+        }
+      } catch (err) {
+        console.warn('[providers] Resolved BDC probe failed:', err.message);
+      }
+    }
   }
 
   const rows = await getProviderTechnologies(providerId);
@@ -87,7 +187,17 @@ export async function resolveProviderTechnologies(providerId) {
     .filter(Boolean)
     .sort((a, b) => Number(a) - Number(b));
 
-  return { technologies, source: 'form477' };
+  if (resolvedBdc && resolvedBdc.id !== String(providerId)) {
+    return {
+      technologies,
+      source: 'bdc_resolved',
+      providerId: resolvedBdc.id,
+      providerName: resolvedBdc.name,
+      resolvedFromProviderId: String(providerId),
+    };
+  }
+
+  return { technologies, source: 'form477', providerId };
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -118,10 +228,11 @@ router.get('/search', async (req, res) => {
  */
 router.get('/:id/technologies', async (req, res) => {
   const { id } = req.params;
+  const providerName = String(req.query.provider_name || '');
   if (!id) return res.status(400).json({ error: 'Provider ID required' });
 
   try {
-    const data = await resolveProviderTechnologies(id);
+    const data = await resolveProviderTechnologies(id, providerName);
     res.json(data);
   } catch (err) {
     console.error('[providers/:id/technologies]', err.message);

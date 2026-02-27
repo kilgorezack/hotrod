@@ -41,6 +41,21 @@ async function bdcFetch(path) {
   return json.data ?? [];
 }
 
+/**
+ * Query FCC BDC provider search directly.
+ * Unlike searchProviders(), this never falls back to Socrata.
+ *
+ * @returns {Array<{ id: string, name: string }>}
+ */
+export async function searchBdcProviders(query, limit = 20) {
+  const rows = await bdcFetch(
+    `/provider/list/${PROCESS_UUID}/${encodeURIComponent(query)}/1`
+  );
+  return rows
+    .slice(0, limit)
+    .map((r) => ({ id: String(r.provider_id), name: r.provider_name }));
+}
+
 // ─── Socrata API (Form 477 fallback) ─────────────────────────────────────────
 
 const SOCRATA_BASE = 'https://opendata.fcc.gov/resource';
