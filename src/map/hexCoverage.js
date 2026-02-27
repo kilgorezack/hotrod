@@ -20,6 +20,20 @@
 const PROXY_BASE = '/api/tiles/fcc';
 
 /**
+ * Map Form 477 tech codes → BDC tile endpoint tech codes.
+ *
+ * The FCC BDC hex tile API only accepts 5 parent codes (10/40/50/60/70).
+ * Sub-codes from Form 477 (11,12,20,30 for DSL; 41,43 for DOCSIS) and
+ * 5G NR (300) all return HTTP 422 Unprocessable Entity.
+ *
+ * Verified by testing every code against a known-coverage tile (z6/18/24).
+ */
+const FORM477_TO_BDC = {
+  '11': '10', '12': '10', '20': '10', '30': '10', // DSL sub-codes → DSL (10)
+  '41': '40', '43': '40',                          // DOCSIS 3+/3.1  → Cable (40)
+};
+
+/**
  * Zoom level used for tile fetching.
  * zoom 6 → H3 res5, ~56 tiles for continental US + AK + HI (~1-3 s total).
  * Raise to 8 for res6 hexagons (~210 tiles, ~3-8 s).
@@ -37,14 +51,22 @@ const _cache = new Map();
  * @returns {Promise<GeoJSON.FeatureCollection|null>}
  */
 export async function fetchHexCoverage(providerId, techCode) {
-  const key = `${providerId}:${techCode}`;
+  // Normalise to a BDC-valid code before hitting the tile endpoint
+  const bdcTech = FORM477_TO_BDC[String(techCode)] ?? String(techCode);
+
+  // tech 300 (5G NR) has no BDC tile equivalent — let caller fall back to state polygons
+  if (bdcTech === '300') return null;
+
+  // Cache by the normalised BDC code so 41 and 43 share the same entry (both → 40)
+  const key = `${providerId}:${bdcTech}`;
   if (_cache.has(key)) return _cache.get(key);
 
   const tiles = getUsTiles(ZOOM);
-  console.info(`[hexCoverage] Fetching ${tiles.length} tiles for provider ${providerId} tech ${techCode}…`);
+  const mapped = bdcTech !== String(techCode) ? ` (Form477 ${techCode} → BDC ${bdcTech})` : '';
+  console.info(`[hexCoverage] Fetching ${tiles.length} tiles for provider ${providerId} tech ${bdcTech}${mapped}…`);
 
   const settled = await Promise.allSettled(
-    tiles.map(({ x, y }) => fetchAndDecode(providerId, techCode, ZOOM, x, y))
+    tiles.map(({ x, y }) => fetchAndDecode(providerId, bdcTech, ZOOM, x, y))
   );
 
   // Diagnostic counters — visible in browser console
@@ -71,7 +93,7 @@ export async function fetchHexCoverage(providerId, techCode) {
   }
 
   console.info(
-    `[hexCoverage] ${providerId}:${techCode} — ` +
+    `[hexCoverage] ${providerId}:${bdcTech} — ` +
     `${tilesWithData} tiles had data, ${tilesEmpty} empty, ${tilesErrored} errored → ` +
     `${features.length} unique hex features`
   );

@@ -23,8 +23,10 @@ const PROBE_TILES = [
   [5, 7, 12], [5, 8, 11], [5, 9, 11], [5, 9, 12],
 ];
 
-// Common FCC tech codes to probe
-const PROBE_TECHS = ['10', '40', '41', '43', '50', '60', '70', '300'];
+// BDC-valid tech codes accepted by the hex tile endpoint.
+// 41, 43 (DOCSIS sub-codes), 300 (5G NR), and DSL variants (11,12,20,30)
+// all return HTTP 422 — only the parent codes work.
+const PROBE_TECHS = ['10', '40', '50', '60', '70'];
 
 const techProbeCache = new Map();
 
