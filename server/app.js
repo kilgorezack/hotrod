@@ -6,6 +6,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import dns from 'node:dns';
 
 import providersRouter, { resolveProviderSearch, resolveProviderTechnologies } from './routes/providers.js';
 import coverageRouter  from './routes/coverage.js';
@@ -16,6 +17,14 @@ import { getAllCounties } from './services/counties.js';
 const isProd = process.env.NODE_ENV === 'production';
 
 const app = express();
+
+// Vercel/serverless egress can intermittently fail on IPv6-only resolution for
+// some FCC endpoints. Prefer IPv4 first to keep outbound BDC/tile fetches stable.
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch (_err) {
+  // Ignore if runtime does not support this option.
+}
 
 // ── Middleware ───────────────────────────────────────────────────────────────
 
