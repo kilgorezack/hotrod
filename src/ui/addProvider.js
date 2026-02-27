@@ -178,7 +178,9 @@ async function selectProvider(provider) {
   addToMapBtn.disabled = true;
 
   try {
-    const codes = await getProviderTechnologies(provider.id);
+    const techData = await getProviderTechnologies(provider.id);
+    const codes = techData.technologies || [];
+    selectedProvider = { ...provider, techSource: techData.source || 'unknown' };
     techLoading.hidden = true;
 
     if (!codes.length) {

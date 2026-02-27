@@ -23,5 +23,8 @@ export async function getProviderTechnologies(providerId) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Technology fetch failed: ${res.status}`);
   const data = await res.json();
-  return data.technologies || [];
+  return {
+    technologies: data.technologies || [],
+    source: data.source || 'unknown',
+  };
 }
