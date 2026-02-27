@@ -17,7 +17,7 @@
  */
 
 /** Proxy route base path — routed through our Express backend */
-const PROXY_BASE = '/api/tiles/fcc';
+const PROXY_BASE = '/api/tiles-fcc';
 
 /**
  * Map Form 477 tech codes → BDC tile endpoint tech codes.
@@ -109,7 +109,14 @@ export async function fetchHexCoverage(providerId, techCode) {
 // ─── Tile Fetching ───────────────────────────────────────────────────────────
 
 async function fetchAndDecode(providerId, techCode, z, x, y) {
-  const url = `${PROXY_BASE}/${providerId}/${techCode}/${z}/${x}/${y}`;
+  const params = new URLSearchParams({
+    provider_id: String(providerId),
+    tech_code: String(techCode),
+    z: String(z),
+    x: String(x),
+    y: String(y),
+  });
+  const url = `${PROXY_BASE}?${params.toString()}`;
 
   let buffer;
   try {

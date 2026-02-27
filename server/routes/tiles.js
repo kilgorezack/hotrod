@@ -37,8 +37,8 @@ const BROWSER_HEADERS = {
 // Log one sample response per provider+tech combo to aid debugging
 const _logged = new Set();
 
-router.get('/fcc/:providerId/:techCode/:z/:x/:y', async (req, res) => {
-  const { providerId, techCode, z, x, y } = req.params;
+export async function proxyFccTile(res, params) {
+  const { providerId, techCode, z, x, y } = params;
   const url = `${FCC_TILE_BASE}/${PROCESS_UUID}/${providerId}/${techCode}/r/0/0/${z}/${x}/${y}`;
 
   try {
@@ -68,6 +68,10 @@ router.get('/fcc/:providerId/:techCode/:z/:x/:y', async (req, res) => {
     console.error('[fcc-tile-proxy] fetch error:', err.message);
     res.status(502).end();
   }
+}
+
+router.get('/fcc/:providerId/:techCode/:z/:x/:y', async (req, res) => {
+  await proxyFccTile(res, req.params);
 });
 
 export default router;

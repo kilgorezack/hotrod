@@ -67,6 +67,29 @@ async function probeTechs(providerId) {
   return techs;
 }
 
+export async function resolveProviderSearch(query, limit = 20) {
+  return searchProviders(query, limit);
+}
+
+export async function resolveProviderTechnologies(providerId) {
+  try {
+    const techs = await probeTechs(providerId);
+    if (techs.length > 0) {
+      return { technologies: techs, source: 'bdc' };
+    }
+  } catch (err) {
+    console.warn('[providers/:id/technologies] BDC probe failed:', err.message);
+  }
+
+  const rows = await getProviderTechnologies(providerId);
+  const technologies = rows
+    .map((r) => r.techcode)
+    .filter(Boolean)
+    .sort((a, b) => Number(a) - Number(b));
+
+  return { technologies, source: 'form477' };
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 /**
@@ -79,8 +102,7 @@ router.get('/search', async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
 
   try {
-    // searchProviders returns [{id, name}] — BDC IDs preferred
-    const providers = await searchProviders(q, limit);
+    const providers = await resolveProviderSearch(q, limit);
     res.json({ providers });
   } catch (err) {
     console.error('[providers/search]', err.message);
@@ -98,24 +120,9 @@ router.get('/:id/technologies', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'Provider ID required' });
 
-  // ── Try BDC tile probe ────────────────────────────────────────────────────
   try {
-    const techs = await probeTechs(id);
-    if (techs.length > 0) {
-      return res.json({ technologies: techs, source: 'bdc' });
-    }
-  } catch (err) {
-    console.warn('[providers/:id/technologies] BDC probe failed:', err.message);
-  }
-
-  // ── Fall back to Socrata Form 477 ─────────────────────────────────────────
-  try {
-    const rows = await getProviderTechnologies(id);
-    const technologies = rows
-      .map((r) => r.techcode)
-      .filter(Boolean)
-      .sort((a, b) => Number(a) - Number(b));
-    res.json({ technologies, source: 'form477' });
+    const data = await resolveProviderTechnologies(id);
+    res.json(data);
   } catch (err) {
     console.error('[providers/:id/technologies]', err.message);
     res.status(502).json({ error: 'Failed to reach FCC data source', detail: err.message });
