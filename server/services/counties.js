@@ -7,7 +7,7 @@
  * State feature IDs in us-atlas are 2-digit FIPS strings: '01', '06', etc.
  */
 
-import fetch from 'node-fetch';
+// Uses global fetch (Node.js 18+ native)
 
 const STATES_URL = 'https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json';
 

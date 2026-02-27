@@ -47,11 +47,16 @@ export async function fetchHexCoverage(providerId, techCode) {
     tiles.map(({ x, y }) => fetchAndDecode(providerId, techCode, ZOOM, x, y))
   );
 
+  // Diagnostic counters — visible in browser console
+  let tilesWithData = 0, tilesEmpty = 0, tilesErrored = 0;
+
   const features = [];
   const seen = new Set();
 
   for (const r of settled) {
-    if (r.status !== 'fulfilled' || !r.value) continue;
+    if (r.status === 'rejected') { tilesErrored++; continue; }
+    if (!r.value?.length)        { tilesEmpty++;    continue; }
+    tilesWithData++;
     for (const f of r.value) {
       // Deduplicate hexagons that appear at tile boundaries.
       // Prefer h3index (always present in FCC BDC tiles); fall back to
@@ -65,7 +70,11 @@ export async function fetchHexCoverage(providerId, techCode) {
     }
   }
 
-  console.info(`[hexCoverage] Got ${features.length} hex features for ${providerId}:${techCode}`);
+  console.info(
+    `[hexCoverage] ${providerId}:${techCode} — ` +
+    `${tilesWithData} tiles had data, ${tilesEmpty} empty, ${tilesErrored} errored → ` +
+    `${features.length} unique hex features`
+  );
 
   const result = features.length > 0
     ? { type: 'FeatureCollection', features }

@@ -11,7 +11,8 @@
  *    - Dataset 4kuc-phrr
  */
 
-import fetch from 'node-fetch';
+// Uses global fetch (Node.js 18+ native) — same TLS fingerprint as tiles.js
+// so the FCC BDC API and tile server behave consistently.
 
 // ─── BDC API ──────────────────────────────────────────────────────────────────
 
@@ -30,20 +31,14 @@ const BDC_HEADERS = {
 };
 
 async function bdcFetch(path) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
-  try {
-    const res = await fetch(`${BDC_BASE}${path}`, {
-      headers: BDC_HEADERS,
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`BDC ${res.status} on ${path}`);
-    const json = await res.json();
-    if (json.status !== 'successful') throw new Error(`BDC error: ${json.message}`);
-    return json.data ?? [];
-  } finally {
-    clearTimeout(timer);
-  }
+  const res = await fetch(`${BDC_BASE}${path}`, {
+    headers: BDC_HEADERS,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`BDC HTTP ${res.status} on ${path}`);
+  const json = await res.json();
+  if (json.status !== 'successful') throw new Error(`BDC error: ${json.message}`);
+  return json.data ?? [];
 }
 
 // ─── Socrata API (Form 477 fallback) ─────────────────────────────────────────
@@ -60,24 +55,18 @@ function buildUrl(params) {
 }
 
 async function socrataFetch(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    const res = await fetch(url, {
-      headers: {
-        'Accept':       'application/json',
-        'X-App-Token':  process.env.FCC_APP_TOKEN || '',
-      },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Socrata ${res.status}: ${text.slice(0, 200)}`);
-    }
-    return res.json();
-  } finally {
-    clearTimeout(timer);
+  const res = await fetch(url, {
+    headers: {
+      'Accept':      'application/json',
+      'X-App-Token': process.env.FCC_APP_TOKEN || '',
+    },
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Socrata ${res.status}: ${text.slice(0, 200)}`);
   }
+  return res.json();
 }
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
@@ -117,6 +106,7 @@ export async function searchProviders(query, limit = 20) {
       .map(r => ({ id: String(r.provider_id), name: r.provider_name }));
 
     if (providers.length > 0) {
+      console.info(`[fcc] BDC provider search OK — "${query}" → ${providers.length} results (IDs: ${providers.slice(0,3).map(p=>p.id).join(', ')})`);
       setCached(key, providers, 60 * 60 * 1000); // 1 hour
       return providers;
     }
@@ -143,6 +133,7 @@ export async function searchProviders(query, limit = 20) {
     .slice(0, limit)
     .map(r => ({ id: r.provider_id, name: r.providername }));
 
+  console.warn(`[fcc] Socrata provider search fallback — "${query}" → ${providers.length} results (IDs are Form 477, NOT BDC — tiles may be empty)`);
   setCached(key, providers, 60 * 60 * 1000);
   return providers;
 }
