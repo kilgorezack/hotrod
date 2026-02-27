@@ -3,24 +3,82 @@ import { searchProviders, getProviderTechnologies } from '../services/fcc.js';
 
 const router = Router();
 
+// ─── FCC BDC tile config (for tech probing) ──────────────────────────────────
+
+const PROCESS_UUID = 'ae8c39d5-170d-4178-8147-5ac7dcaca06a';
+const FCC_TILE_BASE = 'https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile';
+const BROWSER_HEADERS = {
+  'User-Agent':     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Accept':         'application/x-protobuf,*/*',
+  'Referer':        'https://broadbandmap.fcc.gov/',
+  'Origin':         'https://broadbandmap.fcc.gov',
+  'sec-fetch-site': 'same-origin',
+  'sec-fetch-mode': 'cors',
+  'sec-fetch-dest': 'empty',
+};
+
+// 8 zoom-5 tiles covering all major US regions (Pacific NW, CA, SW, Plains, Midwest, Great Lakes, NE, SE)
+const PROBE_TILES = [
+  [5, 4, 11], [5, 5, 12], [5, 6, 12], [5, 7, 11],
+  [5, 7, 12], [5, 8, 11], [5, 9, 11], [5, 9, 12],
+];
+
+// Common FCC tech codes to probe
+const PROBE_TECHS = ['10', '40', '41', '43', '50', '60', '70', '300'];
+
+const techProbeCache = new Map();
+
+/**
+ * Detect available tech codes for a provider by checking whether
+ * FCC BDC tiles have any data (0-byte response = no coverage).
+ * Returns sorted array of tech code strings, or null if none found.
+ */
+async function probeTechs(providerId) {
+  const cacheKey = `probe:${providerId}`;
+  if (techProbeCache.has(cacheKey)) return techProbeCache.get(cacheKey);
+
+  const results = await Promise.all(
+    PROBE_TECHS.map(async (tech) => {
+      const hits = await Promise.all(
+        PROBE_TILES.map(async ([z, x, y]) => {
+          const url = `${FCC_TILE_BASE}/${PROCESS_UUID}/${providerId}/${tech}/r/0/0/${z}/${x}/${y}`;
+          try {
+            const res = await fetch(url, {
+              headers: BROWSER_HEADERS,
+              signal: AbortSignal.timeout(6000),
+            });
+            if (!res.ok) return false;
+            const buf = await res.arrayBuffer();
+            return buf.byteLength > 0;
+          } catch { return false; }
+        })
+      );
+      return hits.some(Boolean) ? tech : null;
+    })
+  );
+
+  const techs = results.filter(Boolean).sort((a, b) => Number(a) - Number(b));
+  if (techs.length > 0) {
+    techProbeCache.set(cacheKey, techs);
+    setTimeout(() => techProbeCache.delete(cacheKey), 60 * 60 * 1000); // 1-hour TTL
+  }
+  return techs;
+}
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+
 /**
  * GET /api/providers/search?q=comcast&limit=20
- * Search FCC provider names.
  */
 router.get('/search', async (req, res) => {
   const q = (req.query.q || '').trim();
-  if (!q || q.length < 2) {
-    return res.json({ providers: [] });
-  }
+  if (!q || q.length < 2) return res.json({ providers: [] });
 
   const limit = Math.min(parseInt(req.query.limit) || 20, 50);
 
   try {
-    const rows = await searchProviders(q, limit);
-    const providers = rows.map((r) => ({
-      id: r.provider_id,
-      name: r.providername,
-    }));
+    // searchProviders returns [{id, name}] — BDC IDs preferred
+    const providers = await searchProviders(q, limit);
     res.json({ providers });
   } catch (err) {
     console.error('[providers/search]', err.message);
@@ -30,19 +88,32 @@ router.get('/search', async (req, res) => {
 
 /**
  * GET /api/providers/:id/technologies
- * List technology codes available for a given provider.
+ *
+ * 1. Try BDC tile probing (fast, 0-byte empty tiles, uses BDC provider ID)
+ * 2. Fall back to Socrata Form 477 GROUP-BY-free query (works for Form 477 IDs)
  */
 router.get('/:id/technologies', async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: 'Provider ID required' });
 
+  // ── Try BDC tile probe ────────────────────────────────────────────────────
+  try {
+    const techs = await probeTechs(id);
+    if (techs.length > 0) {
+      return res.json({ technologies: techs, source: 'bdc' });
+    }
+  } catch (err) {
+    console.warn('[providers/:id/technologies] BDC probe failed:', err.message);
+  }
+
+  // ── Fall back to Socrata Form 477 ─────────────────────────────────────────
   try {
     const rows = await getProviderTechnologies(id);
     const technologies = rows
       .map((r) => r.techcode)
       .filter(Boolean)
       .sort((a, b) => Number(a) - Number(b));
-    res.json({ technologies });
+    res.json({ technologies, source: 'form477' });
   } catch (err) {
     console.error('[providers/:id/technologies]', err.message);
     res.status(502).json({ error: 'Failed to reach FCC data source', detail: err.message });

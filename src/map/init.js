@@ -3,32 +3,29 @@ import { MAPKIT_TOKEN, INITIAL_REGION } from '../config.js';
 /** Shared map instance (set after init) */
 export let map = null;
 
-/** Resolves when MapKit JS is ready */
-let mapKitReadyResolve;
-export const mapKitReady = new Promise((resolve) => {
-  mapKitReadyResolve = resolve;
-});
-
 /**
- * Called by the MapKit JS CDN script via data-callback="hotrodMapKitReady".
- * Exposed on window so the CDN script can call it.
+ * Resolves when MapKit JS CDN has fully loaded (including all libraries).
+ * The promise is pre-created by an inline <script> in index.html BEFORE the
+ * async CDN tag fires, which eliminates any module-vs-async-script race.
  */
-window.hotrodMapKitReady = function () {
-  mapKitReadyResolve();
-};
+export const mapKitReady = window.__mapKitReadyPromise;
 
 /**
  * Initialize MapKit JS and create the map.
  * Must be called after MapKit JS finishes loading.
  */
 export async function initMap() {
-  // Wait for MapKit CDN to signal ready
+  // Wait for MapKit CDN (+ all libraries) to signal ready
   await mapKitReady;
 
-  if (!MAPKIT_TOKEN) {
+  // Validate token looks like a JWT (three base64url parts separated by dots)
+  const isValidJwt = MAPKIT_TOKEN && MAPKIT_TOKEN.split('.').length === 3;
+
+  if (!isValidJwt) {
     console.warn(
-      '[HOTROD] MAPKIT_TOKEN is not set. Map will not render.\n' +
-      'Set MAPKIT_TOKEN in your .env file and restart the dev server.'
+      '[HOTROD] MAPKIT_TOKEN is missing or not a valid JWT.\n' +
+      'Run: node scripts/generate-token.js --key ... --team-id ... --key-id ...\n' +
+      'Then paste the output into your .env file and restart the dev server.'
     );
     showMapTokenWarning();
     return null;

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import providersRouter from './routes/providers.js';
 import coverageRouter from './routes/coverage.js';
 import geoRouter from './routes/geo.js';
+import tilesRouter from './routes/tiles.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -36,6 +37,7 @@ if (!isProd) {
 app.use('/api/providers', providersRouter);
 app.use('/api/coverage', coverageRouter);
 app.use('/api/geo', geoRouter);
+app.use('/api/tiles', tilesRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

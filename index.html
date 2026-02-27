@@ -3,13 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HOTROD — Broadband Coverage Dashboard</title>
+  <title>Hyperlocal Open-source Telecom Reach &amp; Overbuild Dashboard</title>
   <meta name="description" content="Hyperlocal Open-source Telecom Reach & Overbuild Dashboard — compare unlimited broadband provider coverage maps side by side." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.css" />
   <link rel="stylesheet" href="/src/styles/main.css" />
 </head>
 <body>
@@ -30,8 +29,7 @@
           </svg>
         </div>
         <div class="brand-text">
-          <span class="brand-name">HOTROD</span>
-          <span class="brand-sub">Broadband Coverage</span>
+          <span class="brand-name">Hyperlocal Open-source Telecom Reach &amp; Overbuild Dashboard</span>
         </div>
       </div>
     </header>
@@ -154,8 +152,21 @@
   <!-- Toast notifications -->
   <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 
-  <!-- MapKit JS -->
-  <script src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.js" crossorigin async data-callback="hotrodMapKitReady"></script>
+  <!-- MapKit JS: define callback BEFORE the async CDN script so there's no race -->
+  <script>
+    (function () {
+      var resolve;
+      window.__mapKitReadyPromise = new Promise(function (res) { resolve = res; });
+      window.hotrodMapKitReady = function () { resolve(); };
+    })();
+  </script>
+  <script
+    src="https://cdn.apple-mapkit.com/mk/5.x.x/mapkit.core.js"
+    crossorigin
+    async
+    data-callback="hotrodMapKitReady"
+    data-libraries="map,annotations,overlays,geojson"
+  ></script>
 
   <!-- App -->
   <script type="module" src="/src/main.js"></script>

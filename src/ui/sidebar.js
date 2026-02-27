@@ -85,10 +85,10 @@ export function addProviderCard(provider, callbacks) {
  *
  * @param {string} id
  * @param {string} techCode
- * @param {number} countyCount   — number of covered counties
- * @param {number} totalCounties — total US counties (~3143)
+ * @param {number} count       — number of covered features (hex areas or states)
+ * @param {string} [source]    — 'hex' | 'state' (default 'state')
  */
-export function updateCardCoverage(id, techCode, countyCount) {
+export function updateCardCoverage(id, techCode, count, source = 'state') {
   const cardId = cardElId(id, techCode);
   const loadingEl = document.getElementById(`${cardId}-loading`);
   const coverageEl = document.getElementById(`${cardId}-coverage`);
@@ -98,11 +98,18 @@ export function updateCardCoverage(id, techCode, countyCount) {
   if (loadingEl) loadingEl.style.display = 'none';
   if (coverageEl) coverageEl.hidden = false;
 
-  const total = 51; // 50 states + DC
-  const pct = Math.round((countyCount / total) * 100);
-
-  if (fillEl) fillEl.style.width = `${Math.min(pct, 100)}%`;
-  if (labelEl) labelEl.textContent = `${countyCount} / ${total} states (${pct}% coverage)`;
+  if (source === 'hex') {
+    // Hex mode: show raw hex count, fill bar relative to a large national provider (~6000 res5 hexes)
+    const pct = Math.min(Math.round((count / 6000) * 100), 100);
+    if (fillEl) fillEl.style.width = `${pct}%`;
+    if (labelEl) labelEl.textContent = `${count.toLocaleString()} hex area${count !== 1 ? 's' : ''}`;
+  } else {
+    // State mode: X / 51 states
+    const total = 51;
+    const pct = Math.round((count / total) * 100);
+    if (fillEl) fillEl.style.width = `${Math.min(pct, 100)}%`;
+    if (labelEl) labelEl.textContent = `${count} / ${total} states (${pct}% coverage)`;
+  }
 }
 
 /**
