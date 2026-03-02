@@ -73,6 +73,9 @@ function getUsTiles(z) {
 
 // ─── Single Tile Fetch + Decode ───────────────────────────────────────────────
 
+/**
+ * Returns { features: [], tag: 'ok'|'http_NNN'|'empty'|'no_layer'|'parse_err'|'fetch_err' }
+ */
 async function fetchTile(providerId, techCode, z, x, y) {
   const url = `${FCC_TILE_BASE}/${PROCESS_UUID}/${providerId}/${techCode}/r/0/0/${z}/${x}/${y}`;
   try {
@@ -81,26 +84,26 @@ async function fetchTile(providerId, techCode, z, x, y) {
       signal: AbortSignal.timeout(8_000),
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) return { features: [], tag: `http_${res.status}` };
 
     const buf = await res.arrayBuffer();
-    if (!buf || buf.byteLength === 0) return [];
+    if (!buf || buf.byteLength === 0) return { features: [], tag: 'empty' };
 
     try {
       const tile  = new VectorTile(new Pbf(Buffer.from(buf)));
       const layer = tile.layers['fixedproviderhex'];
-      if (!layer) return [];
+      if (!layer) return { features: [], tag: 'no_layer' };
 
       const features = [];
       for (let i = 0; i < layer.length; i++) {
         try { features.push(layer.feature(i).toGeoJSON(x, y, z)); } catch { /* skip */ }
       }
-      return features;
-    } catch {
-      return [];
+      return { features, tag: 'ok' };
+    } catch (e) {
+      return { features: [], tag: 'parse_err', err: e.message };
     }
-  } catch {
-    return [];
+  } catch (e) {
+    return { features: [], tag: 'fetch_err', err: e.message };
   }
 }
 
@@ -132,12 +135,23 @@ router.get('/:providerId/:techCode', async (req, res) => {
 
   const seen     = new Set();
   const features = [];
+  const tagCounts = {};
   let tilesWithData = 0;
+  let firstErrorSample = null;
 
   for (const r of settled) {
-    if (r.status === 'rejected' || !r.value?.length) continue;
+    if (r.status === 'rejected') {
+      tagCounts['rejected'] = (tagCounts['rejected'] || 0) + 1;
+      continue;
+    }
+    const { features: tileFeatures, tag, err } = r.value;
+    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    if (tag !== 'ok' && tag !== 'empty' && !firstErrorSample) {
+      firstErrorSample = { tag, err };
+    }
+    if (!tileFeatures.length) continue;
     tilesWithData++;
-    for (const f of r.value) {
+    for (const f of tileFeatures) {
       const dk = f.properties?.h3index;
       if (!dk || seen.has(dk)) continue;
       seen.add(dk);
@@ -147,8 +161,9 @@ router.get('/:providerId/:techCode', async (req, res) => {
 
   console.info(
     `[hex-agg] ${providerId}:${techCode} — ` +
-    `${tilesWithData}/${tiles.length} tiles, ${features.length} hex features, ` +
-    `${Date.now() - start}ms`
+    `${tilesWithData}/${tiles.length} tiles with data, ${features.length} hex features, ` +
+    `${Date.now() - start}ms | tags: ${JSON.stringify(tagCounts)}` +
+    (firstErrorSample ? ` | sample error: ${JSON.stringify(firstErrorSample)}` : '')
   );
 
   const result = { type: 'FeatureCollection', features };
