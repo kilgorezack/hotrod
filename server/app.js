@@ -10,6 +10,7 @@ import dns from 'node:dns';
 
 import providersRouter, { resolveProviderSearch, resolveProviderTechnologies } from './routes/providers.js';
 import coverageRouter  from './routes/coverage.js';
+import hexAggRouter    from './routes/hexAgg.js';
 import geoRouter       from './routes/geo.js';
 import tilesRouter, { proxyFccTile } from './routes/tiles.js';
 import { getAllCounties } from './services/counties.js';
@@ -45,10 +46,11 @@ if (!isProd) {
 
 // ── API Routes ───────────────────────────────────────────────────────────────
 
-app.use('/api/providers', providersRouter);
-app.use('/api/coverage',  coverageRouter);
-app.use('/api/geo',       geoRouter);
-app.use('/api/tiles',     tilesRouter);
+app.use('/api/providers',     providersRouter);
+app.use('/api/coverage/hex',  hexAggRouter);   // must come BEFORE /api/coverage
+app.use('/api/coverage',      coverageRouter);
+app.use('/api/geo',           geoRouter);
+app.use('/api/tiles',         tilesRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

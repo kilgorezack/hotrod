@@ -1,200 +1,59 @@
 /**
  * hexCoverage.js
  *
- * Fetches FCC BDC provider hex coverage via our Express backend proxy.
+ * Fetches FCC BDC provider hex coverage from the server-side aggregation
+ * endpoint (server/routes/hexAgg.js).
  *
- * The backend (server/routes/tiles.js) proxies requests to:
- *   https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile/...
- *
- * Using a proxy is necessary because the FCC tile server does not set
- * CORS headers (tiles are only served same-origin to broadbandmap.fcc.gov),
- * so direct browser fetches are blocked.  Node.js's built-in fetch CAN reach
- * the endpoint with browser-like headers, which the proxy provides.
- *
- * Tile format : Mapbox Vector Tiles (PBF)
- * Layer name  : "fixedproviderhex"
- * Zoom 6      : H3 resolution 5 hexagons (~252 km² avg, ~56 US tiles)
+ * The server fans out all 352 US tile requests to FCC in parallel,
+ * decodes PBF, and returns a single GeoJSON FeatureCollection.
+ * This replaces the old approach of 352 individual browser→server requests.
  */
 
-/** Proxy route base path — routed through our Express backend */
-const PROXY_BASE = '/api/tiles-fcc';
-
-/**
- * Map Form 477 tech codes → BDC tile endpoint tech codes.
- *
- * The FCC BDC hex tile API only accepts 5 parent codes (10/40/50/60/70).
- * Sub-codes from Form 477 (11,12,20,30 for DSL; 41,43 for DOCSIS) and
- * 5G NR (300) all return HTTP 422 Unprocessable Entity.
- *
- * Verified by testing every code against a known-coverage tile (z6/18/24).
- */
+// Form 477 sub-codes → BDC parent codes (mirrored in server/routes/hexAgg.js)
 const FORM477_TO_BDC = {
   '11': '10', '12': '10', '20': '10', '30': '10', // DSL sub-codes → DSL (10)
   '41': '40', '43': '40',                          // DOCSIS 3+/3.1  → Cable (40)
 };
 
-/**
- * Zoom level used for tile fetching.
- * zoom 6 → H3 res5, ~56 tiles for continental US + AK + HI (~1-3 s total).
- * Raise to 8 for res6 hexagons (~210 tiles, ~3-8 s).
- */
-const ZOOM = 6;
-
-/** In-memory cache keyed by "providerId:techCode" */
+/** In-memory cache keyed by "providerId:bdcTechCode" */
 const _cache = new Map();
 
 /**
- * Fetch and decode all FCC BDC hexagon coverage for a provider+tech.
+ * Fetch FCC BDC hexagon coverage for a provider+tech combination.
  *
- * @param {string|number} providerId  FCC provider_id
- * @param {string|number} techCode    FCC technology code (e.g. 50 = Fiber)
+ * @param {string|number} providerId  FCC BDC provider_id
+ * @param {string|number} techCode    Tech code (Form 477 or BDC)
  * @returns {Promise<GeoJSON.FeatureCollection|null>}
  */
 export async function fetchHexCoverage(providerId, techCode) {
-  // Normalise to a BDC-valid code before hitting the tile endpoint
   const bdcTech = FORM477_TO_BDC[String(techCode)] ?? String(techCode);
 
-  // tech 300 (5G NR) has no BDC tile equivalent — let caller fall back to state polygons
+  // tech 300 (5G NR) has no BDC tile equivalent
   if (bdcTech === '300') return null;
 
-  // Cache by the normalised BDC code so 41 and 43 share the same entry (both → 40)
   const key = `${providerId}:${bdcTech}`;
   if (_cache.has(key)) return _cache.get(key);
 
-  const tiles = getUsTiles(ZOOM);
-  const mapped = bdcTech !== String(techCode) ? ` (Form477 ${techCode} → BDC ${bdcTech})` : '';
-  console.info(`[hexCoverage] Fetching ${tiles.length} tiles for provider ${providerId} tech ${bdcTech}${mapped}…`);
+  const mapped = bdcTech !== String(techCode) ? ` (${techCode} → BDC ${bdcTech})` : '';
+  console.info(`[hexCoverage] Requesting server-aggregated hex for ${providerId}:${bdcTech}${mapped}…`);
 
-  const settled = await Promise.allSettled(
-    tiles.map(({ x, y }) => fetchAndDecode(providerId, bdcTech, ZOOM, x, y))
-  );
-
-  // Diagnostic counters — visible in browser console
-  let tilesWithData = 0, tilesEmpty = 0, tilesErrored = 0;
-
-  const features = [];
-  const seen = new Set();
-
-  for (const r of settled) {
-    if (r.status === 'rejected') { tilesErrored++; continue; }
-    if (!r.value?.length)        { tilesEmpty++;    continue; }
-    tilesWithData++;
-    for (const f of r.value) {
-      // Deduplicate hexagons that appear at tile boundaries.
-      // Prefer h3index (always present in FCC BDC tiles); fall back to
-      // first-vertex coordinate for any non-standard tile data.
-      const h3 = f.properties?.h3index;
-      const coord = !h3 && f.geometry?.coordinates?.[0]?.[0];
-      const dk = h3 ?? (coord ? `${coord[0].toFixed(4)},${coord[1].toFixed(4)}` : null);
-      if (!dk || seen.has(dk)) continue;
-      seen.add(dk);
-      features.push(f);
-    }
-  }
-
-  console.info(
-    `[hexCoverage] ${providerId}:${bdcTech} — ` +
-    `${tilesWithData} tiles had data, ${tilesEmpty} empty, ${tilesErrored} errored → ` +
-    `${features.length} unique hex features`
-  );
-
-  const result = {
-    type: 'FeatureCollection',
-    features,
-    meta: {
-      tileStats: {
-        tilesWithData,
-        tilesEmpty,
-        tilesErrored,
-      },
-    },
-  };
-
-  _cache.set(key, result);
-  return result;
-}
-
-// ─── Tile Fetching ───────────────────────────────────────────────────────────
-
-async function fetchAndDecode(providerId, techCode, z, x, y) {
-  const params = new URLSearchParams({
-    provider_id: String(providerId),
-    tech_code: String(techCode),
-    z: String(z),
-    x: String(x),
-    y: String(y),
-  });
-  const url = `${PROXY_BASE}?${params.toString()}`;
-
-  let buffer;
   try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    buffer = await res.arrayBuffer();
+    const res = await fetch(`/api/coverage/hex/${providerId}/${bdcTech}`);
+
+    if (!res.ok) {
+      console.warn(`[hexCoverage] Server returned ${res.status} for ${providerId}:${bdcTech}`);
+      return null;
+    }
+
+    const geojson = await res.json();
+    const count   = geojson.features?.length ?? 0;
+    console.info(`[hexCoverage] Got ${count} hex features for ${providerId}:${bdcTech}`);
+
+    const result = count > 0 ? geojson : null;
+    _cache.set(key, result);
+    return result;
   } catch (err) {
-    console.warn('[hexCoverage] tile fetch error:', err.message);
-    return [];
+    console.warn('[hexCoverage] fetch error:', err.message);
+    return null;
   }
-
-  if (!buffer || buffer.byteLength === 0) return [];
-  return decodePbf(buffer, z, x, y);
-}
-
-// ─── PBF Decoding ────────────────────────────────────────────────────────────
-
-async function decodePbf(buffer, z, x, y) {
-  const [{ VectorTile }, { default: Pbf }] = await Promise.all([
-    import('@mapbox/vector-tile'),
-    import('pbf'),
-  ]);
-
-  try {
-    const tile  = new VectorTile(new Pbf(buffer));
-    const layer = tile.layers['fixedproviderhex'];
-    if (!layer) return [];
-
-    const features = [];
-    for (let i = 0; i < layer.length; i++) {
-      try {
-        // toGeoJSON(x, y, z) converts tile-space coords → WGS-84 lat/lon
-        features.push(layer.feature(i).toGeoJSON(x, y, z));
-      } catch {
-        // skip malformed features
-      }
-    }
-    return features;
-  } catch {
-    return [];
-  }
-}
-
-// ─── Tile Grid ───────────────────────────────────────────────────────────────
-
-/** Returns all Web Mercator {x, y} tile pairs covering the US at zoom `z`. */
-function getUsTiles(z) {
-  const n = Math.pow(2, z);
-
-  function lonToX(lon) {
-    return Math.floor(((lon + 180) / 360) * n);
-  }
-  function latToY(lat) {
-    const r = lat * (Math.PI / 180);
-    return Math.floor(
-      ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n
-    );
-  }
-
-  // Wide bounds — covers CONUS + Alaska + Hawaii
-  const minX = Math.max(0, lonToX(-180));
-  const maxX = Math.min(n - 1, lonToX(-60));
-  const minY = Math.max(0, latToY(72));    // top of Alaska
-  const maxY = Math.min(n - 1, latToY(17)); // bottom of Hawaii
-
-  const tiles = [];
-  for (let x = minX; x <= maxX; x++) {
-    for (let y = minY; y <= maxY; y++) {
-      tiles.push({ x, y });
-    }
-  }
-  return tiles;
 }
