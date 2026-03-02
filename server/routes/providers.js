@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Hono } from 'hono';
 import { searchProviders, getProviderTechnologies, searchBdcProviders } from '../services/fcc.js';
 
-const router = Router();
+const router = new Hono();
 
-// ─── FCC BDC tile config (for tech probing) ──────────────────────────────────
+// ─── FCC BDC tile config (for tech probing) ──────────────────────────────────────────────
 
 const PROCESS_UUID = 'ae8c39d5-170d-4178-8147-5ac7dcaca06a';
 const FCC_TILE_BASE = 'https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile';
@@ -17,25 +17,18 @@ const BROWSER_HEADERS = {
   'sec-fetch-dest': 'empty',
 };
 
-// 8 zoom-5 tiles covering all major US regions (Pacific NW, CA, SW, Plains, Midwest, Great Lakes, NE, SE)
+// 8 zoom-5 tiles covering all major US regions
 const PROBE_TILES = [
   [5, 4, 11], [5, 5, 12], [5, 6, 12], [5, 7, 11],
   [5, 7, 12], [5, 8, 11], [5, 9, 11], [5, 9, 12],
 ];
 
 // BDC-valid tech codes accepted by the hex tile endpoint.
-// 41, 43 (DOCSIS sub-codes), 300 (5G NR), and DSL variants (11,12,20,30)
-// all return HTTP 422 — only the parent codes work.
 const PROBE_TECHS = ['10', '40', '50', '60', '70'];
 
 const techProbeCache = new Map();
 const bdcNameResolutionCache = new Map();
 
-/**
- * Detect available tech codes for a provider by checking whether
- * FCC BDC tiles have any data (0-byte response = no coverage).
- * Returns sorted array of tech code strings, or null if none found.
- */
 async function probeTechs(providerId) {
   const cacheKey = `probe:${providerId}`;
   if (techProbeCache.has(cacheKey)) return techProbeCache.get(cacheKey);
@@ -63,7 +56,7 @@ async function probeTechs(providerId) {
   const techs = results.filter(Boolean).sort((a, b) => Number(a) - Number(b));
   if (techs.length > 0) {
     techProbeCache.set(cacheKey, techs);
-    setTimeout(() => techProbeCache.delete(cacheKey), 60 * 60 * 1000); // 1-hour TTL
+    setTimeout(() => techProbeCache.delete(cacheKey), 60 * 60 * 1000);
   }
   return techs;
 }
@@ -200,43 +193,31 @@ export async function resolveProviderTechnologies(providerId, providerName = '')
   return { technologies, source: 'form477', providerId };
 }
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
+// ─── Routes ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * GET /api/providers/search?q=comcast&limit=20
- */
-router.get('/search', async (req, res) => {
-  const q = (req.query.q || '').trim();
-  if (!q || q.length < 2) return res.json({ providers: [] });
-
-  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
-
+router.get('/search', async (c) => {
+  const q = (c.req.query('q') || '').trim();
+  if (!q || q.length < 2) return c.json({ providers: [] });
+  const limit = Math.min(parseInt(c.req.query('limit')) || 20, 50);
   try {
     const providers = await resolveProviderSearch(q, limit);
-    res.json({ providers });
+    return c.json({ providers });
   } catch (err) {
     console.error('[providers/search]', err.message);
-    res.status(502).json({ error: 'Failed to reach FCC data source', detail: err.message });
+    return c.json({ error: 'Failed to reach FCC data source', detail: err.message }, 502);
   }
 });
 
-/**
- * GET /api/providers/:id/technologies
- *
- * 1. Try BDC tile probing (fast, 0-byte empty tiles, uses BDC provider ID)
- * 2. Fall back to Socrata Form 477 GROUP-BY-free query (works for Form 477 IDs)
- */
-router.get('/:id/technologies', async (req, res) => {
-  const { id } = req.params;
-  const providerName = String(req.query.provider_name || '');
-  if (!id) return res.status(400).json({ error: 'Provider ID required' });
-
+router.get('/:id/technologies', async (c) => {
+  const id = c.req.param('id');
+  const providerName = String(c.req.query('provider_name') || '');
+  if (!id) return c.json({ error: 'Provider ID required' }, 400);
   try {
     const data = await resolveProviderTechnologies(id, providerName);
-    res.json(data);
+    return c.json(data);
   } catch (err) {
     console.error('[providers/:id/technologies]', err.message);
-    res.status(502).json({ error: 'Failed to reach FCC data source', detail: err.message });
+    return c.json({ error: 'Failed to reach FCC data source', detail: err.message }, 502);
   }
 });
 

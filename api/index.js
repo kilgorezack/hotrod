@@ -1,8 +1,9 @@
 /**
  * Vercel serverless entry point.
- * Vercel routes /api/* here (see vercel.json).
- * The Express app handles all routing internally.
+ * Uses @hono/node-server's toNodeHandler to adapt the Hono app
+ * to Vercel's Node.js serverless function format.
  */
-import app from '../server/app.js';
+import { toNodeHandler } from '@hono/node-server';
+import app from '../src/worker.js';
 
-export default app;
+export default toNodeHandler(app);

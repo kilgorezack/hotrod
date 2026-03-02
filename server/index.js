@@ -1,31 +1,25 @@
 /**
  * Local development / standalone production server.
- * Imports the shared Express app and starts listening.
- * On Vercel, api/index.js is used instead — this file is not invoked.
+ * Uses @hono/node-server to run the Hono app on Node.js.
+ * On Cloudflare Workers, src/worker.js is used directly (not this file).
  */
 import 'dotenv/config';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import express from 'express';
-import app from './app.js';
+import { serve } from '@hono/node-server';
+import { serveStatic } from '@hono/node-server/serve-static';
+import app from '../src/worker.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001');
 const isProd = process.env.NODE_ENV === 'production';
 
-// In standalone production mode, serve the Vite build from dist/
 if (isProd) {
-  const distDir = path.join(__dirname, '..', 'dist');
-  app.use(express.static(distDir));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(distDir, 'index.html'));
-  });
+  // Serve static Vite build for standalone production mode
+  app.get('*', serveStatic({ root: './dist' }));
 }
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 HOTROD API server running on http://localhost:${PORT}`);
+serve({ fetch: app.fetch, port: PORT }, ({ port }) => {
+  console.log(`\n HOTROD server on http://localhost:${port}`);
   console.log(`   Environment: ${isProd ? 'production' : 'development'}`);
   if (!process.env.MAPKIT_TOKEN) {
-    console.warn('   ⚠️  MAPKIT_TOKEN not set — map will not render. See .env.example');
+    console.warn('   MAPKIT_TOKEN not set — map will not render. See .env.example');
   }
 });

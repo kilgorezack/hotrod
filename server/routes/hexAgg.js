@@ -5,20 +5,12 @@
  *
  * Fetches all US tiles from FCC in parallel, decodes PBF on the server,
  * deduplicates by h3index, and returns a single GeoJSON FeatureCollection.
- *
- * Why server-side?
- *   Doing this client-side requires 352 individual browser→Vercel→FCC
- *   round-trips, each spinning up a serverless function.  Doing it here
- *   means ONE request from the browser; the server fans out the 352 FCC
- *   fetches concurrently (fast, low-latency within Vercel's network) and
- *   streams back a single JSON response.  PBF decoding also stays out of
- *   the browser bundle.
  */
-import express from 'express';
+import { Hono } from 'hono';
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
 
-const router = express.Router();
+const router = new Hono();
 
 const PROCESS_UUID = 'ae8c39d5-170d-4178-8147-5ac7dcaca06a'; // Jun 2025
 const FCC_TILE_BASE = 'https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile';
@@ -36,16 +28,14 @@ const BROWSER_HEADERS = {
 
 const ZOOM = 6;
 
-// Form 477 sub-codes → BDC parent codes (same mapping as hexCoverage.js)
 const FORM477_TO_BDC = {
   '11': '10', '12': '10', '20': '10', '30': '10',
   '41': '40', '43': '40',
 };
 
-// 1-hour in-memory cache (survives warm serverless invocations)
 const _cache = new Map();
 
-// ─── Tile Grid ────────────────────────────────────────────────────────────────
+// ─── Tile Grid ────────────────────────────────────────────────────────────────────────────────
 
 function getUsTiles(z) {
   const n = Math.pow(2, z);
@@ -55,8 +45,6 @@ function getUsTiles(z) {
     return Math.floor(((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n);
   };
 
-  // Full US extent: lon -180→-60 (covers CONUS, Alaska, Hawaii, PR, USVI)
-  //                lat 17→72
   const minX = Math.max(0, lonToX(-180));
   const maxX = Math.min(n - 1, lonToX(-60));
   const minY = Math.max(0, latToY(72));
@@ -71,11 +59,8 @@ function getUsTiles(z) {
   return tiles;
 }
 
-// ─── Single Tile Fetch + Decode ───────────────────────────────────────────────
+// ─── Single Tile Fetch + Decode ─────────────────────────────────────────────────────────────────
 
-/**
- * Returns { features: [], tag: 'ok'|'http_NNN'|'empty'|'no_layer'|'parse_err'|'fetch_err' }
- */
 async function fetchTile(providerId, techCode, z, x, y) {
   const url = `${FCC_TILE_BASE}/${PROCESS_UUID}/${providerId}/${techCode}/r/0/0/${z}/${x}/${y}`;
   try {
@@ -107,28 +92,26 @@ async function fetchTile(providerId, techCode, z, x, y) {
   }
 }
 
-// ─── Route ───────────────────────────────────────────────────────────────────
+// ─── Route ───────────────────────────────────────────────────────────────────────────────────
 
-router.get('/:providerId/:techCode', async (req, res) => {
-  const { providerId } = req.params;
-  const techCode = FORM477_TO_BDC[String(req.params.techCode)] ?? String(req.params.techCode);
+router.get('/:providerId/:techCode', async (c) => {
+  const { providerId } = c.req.param();
+  const techCode = FORM477_TO_BDC[String(c.req.param('techCode'))] ?? String(c.req.param('techCode'));
 
-  // 5G NR has no BDC tile equivalent
   if (techCode === '300') {
-    return res.json({ type: 'FeatureCollection', features: [] });
+    return c.json({ type: 'FeatureCollection', features: [] });
   }
 
   const cacheKey = `${providerId}:${techCode}`;
   const cached = _cache.get(cacheKey);
   if (cached) {
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    return res.json(cached);
+    c.header('Cache-Control', 'public, max-age=3600');
+    return c.json(cached);
   }
 
   const tiles = getUsTiles(ZOOM);
   const start = Date.now();
 
-  // Fan out to FCC in parallel — empty tiles respond in ~50 ms, data tiles ~200-500 ms
   const settled = await Promise.allSettled(
     tiles.map(({ x, y }) => fetchTile(providerId, techCode, ZOOM, x, y))
   );
@@ -168,12 +151,11 @@ router.get('/:providerId/:techCode', async (req, res) => {
 
   const result = { type: 'FeatureCollection', features };
 
-  // Cache for 1 hour in memory; CDN edge cache will honour the HTTP header
   _cache.set(cacheKey, result);
   setTimeout(() => _cache.delete(cacheKey), 3_600_000);
 
-  res.setHeader('Cache-Control', 'public, max-age=3600');
-  res.json(result);
+  c.header('Cache-Control', 'public, max-age=3600');
+  return c.json(result);
 });
 
 export default router;

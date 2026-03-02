@@ -1,21 +1,20 @@
-import { Router } from 'express';
+import { Hono } from 'hono';
 import { getAllCounties } from '../services/counties.js';
 
-const router = Router();
+const router = new Hono();
 
 /**
  * GET /api/geo/counties
  * Returns the full US county GeoJSON (cached in memory after first load).
- * Used by the frontend for reference/lookup.
  */
-router.get('/counties', async (req, res) => {
+router.get('/counties', async (c) => {
   try {
     const geojson = await getAllCounties();
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24hr browser cache
-    res.json(geojson);
+    c.header('Cache-Control', 'public, max-age=86400');
+    return c.json(geojson);
   } catch (err) {
     console.error('[geo/counties]', err.message);
-    res.status(502).json({ error: 'Failed to load county boundaries', detail: err.message });
+    return c.json({ error: 'Failed to load county boundaries', detail: err.message }, 502);
   }
 });
 
