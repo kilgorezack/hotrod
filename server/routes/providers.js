@@ -48,7 +48,7 @@ async function probeTechs(providerId) {
           try {
             const res = await fetch(url, {
               headers: BROWSER_HEADERS,
-              signal: AbortSignal.timeout(6000),
+              signal: AbortSignal.timeout(2500),
             });
             if (!res.ok) return false;
             const buf = await res.arrayBuffer();

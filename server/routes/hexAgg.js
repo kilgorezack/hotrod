@@ -81,7 +81,7 @@ async function fetchTile(providerId, techCode, z, x, y) {
   try {
     const res = await fetch(url, {
       headers: BROWSER_HEADERS,
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(2_500),
     });
 
     if (!res.ok) return { features: [], tag: `http_${res.status}` };

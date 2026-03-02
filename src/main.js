@@ -81,11 +81,6 @@ async function handleProviderAdd(provider, techCode) {
     }
 
     if (!hasHex) {
-      if (provider.techSource === 'form477') {
-        showToast(`No FCC hex data found for ${provider.name} — ${techLabel(techCode)}.`, 'info');
-        updateCardCoverage(provider.id, techCode, 0, 'hex');
-        return;
-      }
       console.info(`[coverage] No BDC hex data for ${provider.id}:${techCode} — falling back to state polygons`);
       geojson = await getCoverageGeoJSON(provider.id, techCode);
       dataSource = 'state';
