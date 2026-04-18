@@ -10,7 +10,7 @@ const router = new Hono();
 router.get('/counties', async (c) => {
   try {
     const geojson = await getAllCounties();
-    c.header('Cache-Control', 'public, max-age=86400');
+    c.header('Cache-Control', 'public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400');
     return c.json(geojson);
   } catch (err) {
     console.error('[geo/counties]', err.message);

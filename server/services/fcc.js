@@ -33,7 +33,7 @@ const BDC_HEADERS = {
 async function bdcFetch(path) {
   const res = await fetch(`${BDC_BASE}${path}`, {
     headers: BDC_HEADERS,
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(3_000),
   });
   if (!res.ok) throw new Error(`BDC HTTP ${res.status} on ${path}`);
   const json = await res.json();

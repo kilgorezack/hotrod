@@ -17,10 +17,9 @@ const BROWSER_HEADERS = {
   'sec-fetch-dest': 'empty',
 };
 
-// 8 zoom-5 tiles covering all major US regions
+// 4 zoom-5 tiles covering major US regions (reduced for speed)
 const PROBE_TILES = [
-  [5, 4, 11], [5, 5, 12], [5, 6, 12], [5, 7, 11],
-  [5, 7, 12], [5, 8, 11], [5, 9, 11], [5, 9, 12],
+  [5, 5, 12], [5, 7, 11], [5, 8, 11], [5, 9, 12],
 ];
 
 // BDC-valid tech codes accepted by the hex tile endpoint.
@@ -41,7 +40,7 @@ async function probeTechs(providerId) {
           try {
             const res = await fetch(url, {
               headers: BROWSER_HEADERS,
-              signal: AbortSignal.timeout(2500),
+              signal: AbortSignal.timeout(1500),
             });
             if (!res.ok) return false;
             const buf = await res.arrayBuffer();
