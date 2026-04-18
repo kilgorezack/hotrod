@@ -1,0 +1,185 @@
+{
+  "version": "2024-01",
+  "providers": [
+    {
+      "name": "Comcast / Xfinity",
+      "googleRating": 1.6,
+      "medianMonthlyPriceUsd": 75,
+      "states": ["CA","WA","OR","IL","PA","FL","CO","MN","MD","DC","GA","NJ","MA","MI","CT","ME","NH","DE","IN","OH","KY","TN","AL","GA","SC","NC","VA","NM","AZ","UT","ID"]
+    },
+    {
+      "name": "Charter / Spectrum",
+      "googleRating": 1.7,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["NY","CA","TX","FL","OH","NC","WI","MN","MI","WA","AZ","CO","MO","TN","KY","LA","MS","AL","SC","NM","NE","ND","SD","KS","IA","IN","WV","VA","MD","ME","NH","VT","MA","CT","RI","NJ","PA","NV","ID","MT","WY","UT","OR","AR","OK","GA","DE"]
+    },
+    {
+      "name": "AT&T",
+      "googleRating": 1.8,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["TX","CA","FL","GA","IL","OH","MI","IN","WI","MO","KS","OK","AR","LA","MS","AL","TN","KY","SC","NC","CT","IN","NV"]
+    },
+    {
+      "name": "Verizon Fios",
+      "googleRating": 2.3,
+      "medianMonthlyPriceUsd": 70,
+      "states": ["NY","NJ","PA","MD","VA","DC","DE","RI","MA"]
+    },
+    {
+      "name": "Cox Communications",
+      "googleRating": 1.9,
+      "medianMonthlyPriceUsd": 65,
+      "states": ["AZ","CA","CT","FL","GA","ID","IA","KS","LA","ME","MA","NE","NV","OH","OK","OR","RI","VA"]
+    },
+    {
+      "name": "Optimum / Altice",
+      "googleRating": 1.4,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["NY","NJ","CT","PA"]
+    },
+    {
+      "name": "Lumen / CenturyLink / Quantum Fiber",
+      "googleRating": 1.5,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["WA","OR","CA","NV","ID","MT","WY","CO","UT","AZ","NM","ND","SD","NE","KS","MO","IA","MN","WI","IN","OH","FL","AL","MS","LA","AR","TN","NC","VA","PA","NY"]
+    },
+    {
+      "name": "Frontier Communications",
+      "googleRating": 1.7,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["CA","TX","FL","WV","VA","NC","SC","GA","AL","MS","TN","IN","OH","MI","WI","IL","MN","IA","MO","KS","NE","SD","ND","NY","PA","CT","NJ","VT","NH","ME"]
+    },
+    {
+      "name": "Windstream / Kinetic",
+      "googleRating": 1.6,
+      "medianMonthlyPriceUsd": 45,
+      "states": ["AR","AL","GA","IA","KS","KY","MN","MS","MO","NC","NE","NY","OH","OK","PA","SC","TX","WI","WV","FL","IN"]
+    },
+    {
+      "name": "TDS Telecom",
+      "googleRating": 2.2,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["WI","IL","MN","ND","SD","NE","KS","MO","TN","NC","GA","VA","OR","WA","ID","CO","UT","NH","VT","ME","MA","NY","OH","IN","MI"]
+    },
+    {
+      "name": "Mediacom",
+      "googleRating": 1.5,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["IA","IL","MN","MO","GA","AL","MS","TN","KY","OH","IN","NC","SC","FL","AR","OK","KS","NE","SD","ND","WI"]
+    },
+    {
+      "name": "WideOpenWest / WOW",
+      "googleRating": 2.1,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["MI","OH","IL","IN","AL","GA","FL","TN","SC","NC","CO"]
+    },
+    {
+      "name": "Consolidated Communications",
+      "googleRating": 1.8,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["CA","IL","KS","ME","MN","MO","NH","NY","PA","SD","TX","VT","WA"]
+    },
+    {
+      "name": "Brightspeed",
+      "googleRating": 1.9,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["AL","AR","CO","GA","IA","IL","IN","KS","LA","MI","MN","MO","MS","ND","NE","NM","NC","OH","OK","PA","SC","SD","TN","TX","VA","WI","WY"]
+    },
+    {
+      "name": "Metronet",
+      "googleRating": 3.8,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["IL","IN","OH","MI","KY","TN","IA","MO","KS","OK","TX","AR","FL","GA","NC","SC","VA","WI","MN","ND","SD","NE"]
+    },
+    {
+      "name": "Google Fiber",
+      "googleRating": 4.1,
+      "medianMonthlyPriceUsd": 70,
+      "states": ["CA","UT","TX","KS","MO","NC","TN","GA","AL"]
+    },
+    {
+      "name": "T-Mobile Home Internet",
+      "googleRating": 3.2,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"]
+    },
+    {
+      "name": "Verizon 5G Home Internet",
+      "googleRating": 3.1,
+      "medianMonthlyPriceUsd": 50,
+      "states": ["NY","NJ","PA","MA","CT","RI","MD","VA","DC","GA","FL","TX","OH","MI","IL","MN","CO","AZ","CA","WA","OR","NV","UT"]
+    },
+    {
+      "name": "Starlink",
+      "googleRating": 4.2,
+      "medianMonthlyPriceUsd": 120,
+      "states": ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"]
+    },
+    {
+      "name": "HughesNet",
+      "googleRating": 1.4,
+      "medianMonthlyPriceUsd": 80,
+      "states": ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"]
+    },
+    {
+      "name": "Viasat",
+      "googleRating": 1.6,
+      "medianMonthlyPriceUsd": 90,
+      "states": ["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC"]
+    },
+    {
+      "name": "Hawaiian Telecom",
+      "googleRating": 2.4,
+      "medianMonthlyPriceUsd": 65,
+      "states": ["HI"]
+    },
+    {
+      "name": "GCI (Alaska Communications)",
+      "googleRating": 2.6,
+      "medianMonthlyPriceUsd": 90,
+      "states": ["AK"]
+    },
+    {
+      "name": "Astound Broadband",
+      "googleRating": 2.8,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["CA","WA","OR","TX","IL","MI","PA","NY","MD","VA","DC"]
+    },
+    {
+      "name": "Ziply Fiber",
+      "googleRating": 3.5,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["WA","OR","ID","MT"]
+    },
+    {
+      "name": "Breezeline",
+      "googleRating": 2.1,
+      "medianMonthlyPriceUsd": 55,
+      "states": ["OH","WV","PA","MD","VA","NH","MA","CT","FL","SC","NC"]
+    },
+    {
+      "name": "Ting Internet",
+      "googleRating": 4.3,
+      "medianMonthlyPriceUsd": 89,
+      "states": ["CA","CO","NC","MD","VA","WI","MN","TX","OR"]
+    },
+    {
+      "name": "Sparklight (Cable One)",
+      "googleRating": 1.8,
+      "medianMonthlyPriceUsd": 65,
+      "states": ["AZ","ID","MN","MO","MS","ND","NM","OK","SD","TX","WY","AL","AR","WA","OR","MT","NE","IA","KS"]
+    },
+    {
+      "name": "Cincinnati Bell / Altafiber",
+      "googleRating": 2.5,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["OH","KY","IN","HI"]
+    },
+    {
+      "name": "Atlantic Broadband",
+      "googleRating": 2.0,
+      "medianMonthlyPriceUsd": 60,
+      "states": ["MD","PA","WV","VA","NC","SC","FL","NY","NH","ME","VT"]
+    }
+  ]
+}

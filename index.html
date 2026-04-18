@@ -34,8 +34,16 @@
       </div>
     </header>
 
+    <!-- Sidebar tab navigation -->
+    <nav class="sidebar-tabs" role="tablist" aria-label="Sidebar sections">
+      <button id="tab-map" class="sidebar-tab active" role="tab"
+        aria-selected="true" aria-controls="provider-view" data-view="provider-view">Map</button>
+      <button id="tab-insights" class="sidebar-tab" role="tab"
+        aria-selected="false" aria-controls="insights-view" data-view="insights-view">Insights</button>
+    </nav>
+
     <!-- Provider list view (default) -->
-    <div id="provider-view" class="sidebar-view active">
+    <div id="provider-view" class="sidebar-view active" role="tabpanel" aria-labelledby="tab-map">
       <div class="sidebar-actions">
         <button id="add-provider-btn" class="btn-add-provider" aria-label="Add a provider to the map">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -136,6 +144,37 @@
           </button>
         </div>
       </div>
+    </div>
+
+    <!-- Insights view -->
+    <div id="insights-view" class="sidebar-view" aria-hidden="true" role="tabpanel" aria-labelledby="tab-insights">
+      <div class="insights-content">
+        <div class="insights-search-section">
+          <label class="section-label" for="insights-search">Search a provider</label>
+          <div class="search-wrapper">
+            <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M10.5 10.5L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <input
+              type="search"
+              id="insights-search"
+              class="search-input"
+              placeholder="e.g. Comcast, AT&amp;T…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+          <div id="insights-search-results" class="search-results" role="listbox" aria-label="Provider results"></div>
+        </div>
+        <div id="insights-body" class="insights-body"></div>
+      </div>
+      <footer class="sidebar-footer">
+        <div class="footer-data">
+          <span class="footer-label">Data</span>
+          <span class="footer-value">Google Reviews · pricing estimates · 2024</span>
+        </div>
+      </footer>
     </div>
 
   </aside>

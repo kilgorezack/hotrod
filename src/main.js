@@ -6,6 +6,7 @@
 import { initMap } from './map/init.js';
 import { addCoverageOverlay, removeCoverageOverlay, toggleCoverageOverlay } from './map/overlays.js';
 import { initAddProvider, onProviderAdd } from './ui/addProvider.js';
+import { initInsights } from './ui/insights.js';
 import { addProviderCard, removeProviderCard, updateCardCoverage, markCardError, updateCardVisibility } from './ui/sidebar.js';
 import { showToast } from './ui/toast.js';
 import { assignColor, releaseColor } from './utils/colors.js';
@@ -25,6 +26,7 @@ const activeProviders = new Map();
 
 async function init() {
   initAddProvider();
+  initInsights();
   onProviderAdd(handleProviderAdd);
 
   try {
