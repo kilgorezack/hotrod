@@ -105,7 +105,7 @@ router.get('/:providerId/:techCode', async (c) => {
   const cacheKey = `${providerId}:${techCode}`;
   const cached = _cache.get(cacheKey);
   if (cached) {
-    c.header('Cache-Control', 'public, max-age=3600');
+    c.header('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600');
     return c.json(cached);
   }
 
@@ -154,7 +154,7 @@ router.get('/:providerId/:techCode', async (c) => {
   _cache.set(cacheKey, result);
   setTimeout(() => _cache.delete(cacheKey), 3_600_000);
 
-  c.header('Cache-Control', 'public, max-age=3600');
+  c.header('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600');
   return c.json(result);
 });
 

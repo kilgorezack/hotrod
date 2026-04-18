@@ -31,6 +31,7 @@ router.get('/', async (c) => {
 
     const geojson = await buildCoverageGeoJSON(coverageRows);
 
+    c.header('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=3600');
     return c.json({
       ...geojson,
       meta: {
