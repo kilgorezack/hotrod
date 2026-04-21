@@ -49,7 +49,11 @@ async function init() {
         const res = targetResolution(mapInst.region.span.latitudeDelta);
         for (const [, entry] of activeProviders) {
           if (!entry.h3Indices?.length) continue;
-          if (entry.renderedResolution === res) continue;
+          // Always re-render once after the initial fit-to-coverage pan (_pendingRedraw),
+          // because MapKit may not render overlays that were outside the viewport when
+          // they were first added. After that, only re-render on resolution changes.
+          if (entry.renderedResolution === res && !entry._pendingRedraw) continue;
+          entry._pendingRedraw = false;
           entry.renderedResolution = res;
           const geojson = h3ToGeoJSON(aggregateH3(entry.h3Indices, res));
           addCoverageOverlay(entry.provider.id, entry.techCode, entry.colorHex, geojson);
@@ -120,7 +124,10 @@ async function handleProviderAdd(provider, techCode) {
     // Store raw H3 indices so we can re-render at any resolution on zoom change.
     const h3Indices = extractH3Indices(geojson);
     const entry = activeProviders.get(key);
-    if (entry) entry.h3Indices = h3Indices;
+    if (entry) {
+      entry.h3Indices = h3Indices;
+      entry._pendingRedraw = true; // force one re-render after the initial fit-to-coverage pan
+    }
 
     // Render at resolution appropriate for the current zoom level.
     const currentSpan = mapInst?.region?.span?.latitudeDelta ?? 22;
