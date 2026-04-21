@@ -44,7 +44,7 @@ const CSV_TYPE_TO_TECH = {
 
 const FIPS_TO_ABBR = {
   '01':'AL','02':'AK','04':'AZ','05':'AR','06':'CA','08':'CO','09':'CT',
-  '10':'DE','12':'FL','13':'GA','15':'HI','16':'ID','17':'IL','18':'IN',
+  '10':'DE','11':'DC','12':'FL','13':'GA','15':'HI','16':'ID','17':'IL','18':'IN',
   '19':'IA','20':'KS','21':'KY','22':'LA','23':'ME','24':'MD','25':'MA',
   '26':'MI','27':'MN','28':'MS','29':'MO','30':'MT','31':'NE','32':'NV',
   '33':'NH','34':'NJ','35':'NM','36':'NY','37':'NC','38':'ND','39':'OH',
@@ -114,8 +114,13 @@ function extractProviderFields(line) {
   return { providerId, name: name.trim() };
 }
 
-async function processFile(filePath, techCode, providers, hexes) {
-  return new Promise((resolve, reject) => {
+// Processes one CSV file, uploading hex data immediately to avoid OOM on large states.
+// Returns provider info (lightweight) so providers.json can be updated at the end.
+async function processAndUploadFile(filePath, techCode) {
+  const providers = new Map(); // id → { name, techs: Set }
+  const hexes     = new Map(); // "id_tech" → Set<h3>
+
+  await new Promise((resolve, reject) => {
     const rl = createInterface({ input: createReadStream(filePath), crlfDelay: Infinity });
     let first = true;
     rl.on('line', (line) => {
@@ -135,6 +140,20 @@ async function processFile(filePath, techCode, providers, hexes) {
     rl.on('close', resolve);
     rl.on('error', reject);
   });
+
+  // Upload hex files immediately, then free memory
+  let uploaded = 0;
+  const tasks = [...hexes.entries()].map(([key, h3Set]) => async () => {
+    await uploadJSON(`hexes/${key}.json`, [...h3Set]);
+    uploaded++;
+    if (uploaded % 50 === 0 || uploaded === hexes.size) {
+      process.stdout.write(`\r  ${uploaded}/${hexes.size} hex files`);
+    }
+  });
+  await uploadBatch(tasks, 20);
+  if (hexes.size > 0) process.stdout.write('\n');
+
+  return providers;
 }
 
 // ─── Upload helpers ───────────────────────────────────────────────────────────
@@ -148,7 +167,6 @@ async function uploadJSON(storagePath, data) {
   });
 }
 
-// Upload in parallel with concurrency limit to avoid rate limits
 async function uploadBatch(tasks, concurrency = 20) {
   let i = 0;
   async function worker() {
@@ -166,13 +184,13 @@ async function main() {
   const dataDir = findDataDir();
   if (!dataDir) { console.error('fcc_data/ not found'); process.exit(1); }
 
-  const allProviders = new Map(); // id → { name, techs: Set }
-  const allHexes     = new Map(); // "id_tech" → Set<h3>
+  const allProviders = new Map(); // id → { name, techs: Set } — stays small
 
   const stateDirs = readdirSync(dataDir).filter(d => {
     try { readdirSync(path.join(dataDir, d)); return true; } catch { return false; }
   });
 
+  let filesProcessed = 0;
   for (const stateDir of stateDirs) {
     const statePath = path.join(dataDir, stateDir);
     let files;
@@ -189,7 +207,13 @@ async function main() {
       if (FILTER_STATE && abbr !== FILTER_STATE) continue;
 
       console.log(`Processing ${file}...`);
-      await processFile(path.join(statePath, file), tech, allProviders, allHexes);
+      const fileProviders = await processAndUploadFile(path.join(statePath, file), tech);
+      filesProcessed++;
+
+      for (const [id, { name, techs }] of fileProviders) {
+        if (!allProviders.has(id)) allProviders.set(id, { name, techs: new Set() });
+        for (const t of techs) allProviders.get(id).techs.add(t);
+      }
     }
   }
 
@@ -198,14 +222,11 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\nProcessed ${allProviders.size} providers, ${allHexes.size} provider+tech combos`);
+  console.log(`\nProcessed ${filesProcessed} files, ${allProviders.size} providers`);
 
-  // ── Upload providers.json ──────────────────────────────────────────────────
-  // Merge with any existing providers.json so partial state imports accumulate
+  // ── Merge and upload providers.json ───────────────────────────────────────
   let existingProviders = {};
-  if (!DRY_RUN && !FILTER_STATE) {
-    // Full run: overwrite entirely
-  } else if (!DRY_RUN) {
+  if (!DRY_RUN) {
     try {
       const [buf] = await bucket.file('providers.json').download();
       existingProviders = Object.fromEntries(
@@ -215,7 +236,6 @@ async function main() {
     } catch { /* no existing file — start fresh */ }
   }
 
-  // Merge new providers into existing
   for (const [id, { name, techs }] of allProviders) {
     if (existingProviders[id]) {
       const merged = new Set([...existingProviders[id].techs, ...[...techs]]);
@@ -226,35 +246,10 @@ async function main() {
   }
 
   const providerList = Object.values(existingProviders);
-  console.log(`\nUploading providers.json (${providerList.length} providers)...`);
+  console.log(`Uploading providers.json (${providerList.length} providers)...`);
   await uploadJSON('providers.json', providerList);
 
-  // ── Upload hex files ───────────────────────────────────────────────────────
-  console.log(`Uploading ${allHexes.size} hex files to hexes/...`);
-  let uploaded = 0;
-
-  const tasks = [...allHexes.entries()].map(([key, h3Set]) => async () => {
-    await uploadJSON(`hexes/${key}.json`, [...h3Set]);
-    uploaded++;
-    if (uploaded % 50 === 0 || uploaded === allHexes.size) {
-      process.stdout.write(`\r  ${uploaded}/${allHexes.size} files uploaded`);
-    }
-  });
-
-  await uploadBatch(tasks, 20);
-  console.log('\n');
-
-  // ── Make files publicly readable ──────────────────────────────────────────
-  if (!DRY_RUN) {
-    console.log('Setting public read access...');
-    // Note: Bucket-level public access must be enabled in Firebase Console:
-    // Storage → Rules → allow read: if true;
-    // OR: Google Cloud Console → Storage → Bucket → Permissions → allUsers: Storage Object Viewer
-  }
-
   console.log(`\nDone.${DRY_RUN ? ' (dry run — nothing was uploaded)' : ''}`);
-  console.log(`\nStorage base URL: https://storage.googleapis.com/${process.env.FIREBASE_STORAGE_BUCKET}`);
-  console.log('Set this as FIREBASE_STORAGE_BASE in your .env and Vercel env vars.');
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
