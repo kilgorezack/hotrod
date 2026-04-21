@@ -9,7 +9,7 @@
 import { Hono } from 'hono';
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
-import { getFirebaseHexCoverage } from '../services/firebaseService.js';
+import { getFirebaseHexCoverage, saveFirebaseHexCoverage } from '../services/firebaseService.js';
 
 const router = new Hono();
 
@@ -122,6 +122,16 @@ router.get('/:providerId/:techCode', async (c) => {
     }
   } catch { /* not in Node.js — fall through */ }
 
+  // 2. Firebase Storage — pre-built nationwide hex arrays (fast, ~100ms)
+  const firebase = await getFirebaseHexCoverage(providerId, techCode);
+  if (firebase) {
+    _cache.set(cacheKey, firebase);
+    setTimeout(() => _cache.delete(cacheKey), 3_600_000);
+    c.header('Cache-Control', 'public, max-age=3600');
+    return c.json(firebase);
+  }
+
+  // 3. FCC BDC live tiles — fallback when Firebase has no data yet
   const tiles = getUsTiles(ZOOM);
   const start = Date.now();
 
@@ -167,12 +177,9 @@ router.get('/:providerId/:techCode', async (c) => {
   _cache.set(cacheKey, result);
   setTimeout(() => _cache.delete(cacheKey), 3_600_000);
 
-  // Back-fill Firebase with the complete FCC tile result so the next request
-  // is served instantly from Firebase (which now has accurate nationwide data).
+  // Back-fill Firebase so the next request is served from cache instantly.
   if (features.length > 0) {
-    import('../services/firebaseService.js')
-      .then(({ saveFirebaseHexCoverage }) => saveFirebaseHexCoverage(providerId, techCode, features))
-      .catch(() => {});
+    saveFirebaseHexCoverage(providerId, techCode, features).catch(() => {});
   }
 
   c.header('Cache-Control', 'public, max-age=3600');
