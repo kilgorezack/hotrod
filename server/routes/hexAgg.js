@@ -9,6 +9,7 @@
 import { Hono } from 'hono';
 import { VectorTile } from '@mapbox/vector-tile';
 import Pbf from 'pbf';
+import { getFirebaseHexCoverage } from '../services/firebaseService.js';
 
 const router = new Hono();
 
@@ -109,7 +110,20 @@ router.get('/:providerId/:techCode', async (c) => {
     return c.json(cached);
   }
 
-  // Try local CSV files first (Node.js only — dynamic import fails silently in Workers).
+  // 1. Firebase Storage (all states, highest priority)
+  try {
+    const firebase = await getFirebaseHexCoverage(providerId, techCode);
+    if (firebase) {
+      _cache.set(cacheKey, firebase);
+      setTimeout(() => _cache.delete(cacheKey), 3_600_000);
+      c.header('Cache-Control', 'public, max-age=3600');
+      return c.json(firebase);
+    }
+  } catch (err) {
+    console.warn('[hex-agg] firebase lookup failed:', err.message);
+  }
+
+  // 2. Local JSON files (committed states — Node.js only)
   try {
     const { getLocalHexCoverage } = await import('../services/localCsv.js');
     const local = await getLocalHexCoverage(providerId, techCode);
@@ -119,7 +133,7 @@ router.get('/:providerId/:techCode', async (c) => {
       c.header('Cache-Control', 'public, max-age=3600');
       return c.json(local);
     }
-  } catch { /* not in Node.js or h3-js unavailable — fall through to FCC API */ }
+  } catch { /* not in Node.js — fall through */ }
 
   const tiles = getUsTiles(ZOOM);
   const start = Date.now();

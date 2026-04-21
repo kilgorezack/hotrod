@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { searchFirebaseProviders, getFirebaseProviderTechs } from '../services/firebaseService.js';
 
 const router = new Hono();
 
@@ -65,6 +66,18 @@ async function fccTechs(providerId, providerName) {
 // ─── Exported resolvers (used by flat aliases in worker.js) ──────────────────
 
 export async function resolveProviderSearch(query, limit = 20) {
+  // 1. Firebase Storage (all states)
+  try {
+    const results = await searchFirebaseProviders(query, limit);
+    if (results?.length > 0) {
+      console.info(`[providers] firebase search "${query}" → ${results.length} results`);
+      return results;
+    }
+  } catch (err) {
+    console.warn('[providers] firebase search failed:', err.message);
+  }
+
+  // 2. Local JSON files (committed states)
   try {
     const results = await localSearch(query, limit);
     if (results.length > 0) {
@@ -72,12 +85,26 @@ export async function resolveProviderSearch(query, limit = 20) {
       return results;
     }
   } catch (err) {
-    console.warn('[providers] local search unavailable, falling back to FCC:', err.message);
+    console.warn('[providers] local search unavailable:', err.message);
   }
+
+  // 3. FCC API fallback
   return fccSearch(query, limit);
 }
 
 export async function resolveProviderTechnologies(providerId, providerName = '') {
+  // 1. Firebase Storage
+  try {
+    const techs = await getFirebaseProviderTechs(providerId);
+    if (techs?.length > 0) {
+      console.info(`[providers] firebase techs ${providerId} → ${techs}`);
+      return { technologies: techs, source: 'firebase', providerId };
+    }
+  } catch (err) {
+    console.warn('[providers] firebase tech lookup failed:', err.message);
+  }
+
+  // 2. Local JSON files
   try {
     const techs = await localTechs(providerId);
     if (techs.length > 0) {
@@ -85,8 +112,10 @@ export async function resolveProviderTechnologies(providerId, providerName = '')
       return { technologies: techs, source: 'local', providerId };
     }
   } catch (err) {
-    console.warn('[providers] local tech lookup unavailable, falling back to FCC:', err.message);
+    console.warn('[providers] local tech lookup unavailable:', err.message);
   }
+
+  // 3. FCC API fallback
   return fccTechs(providerId, providerName);
 }
 
