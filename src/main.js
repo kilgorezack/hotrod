@@ -12,15 +12,19 @@ import { showToast } from './ui/toast.js';
 import { assignColor, releaseColor } from './utils/colors.js';
 import { fetchHexCoverage } from './map/hexCoverage.js';
 import { getCoverageGeoJSON } from './api/coverage.js';
+import { targetResolution, aggregateH3, h3ToGeoJSON, extractH3Indices } from './map/h3Resolution.js';
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
 /**
  * Active providers map.
  * Key: `${providerId}:${techCode}`
- * Value: { provider, techCode, colorHex, visible }
+ * Value: { provider, techCode, colorHex, visible, h3Indices, renderedResolution }
  */
 const activeProviders = new Map();
+
+/** MapKit map instance — set after initMap() resolves. */
+let mapInst = null;
 
 // ─── Initialize ──────────────────────────────────────────────────────────────
 
@@ -30,10 +34,29 @@ async function init() {
   onProviderAdd(handleProviderAdd);
 
   try {
-    await initMap();
+    mapInst = await initMap();
   } catch (err) {
     console.error('[map init]', err);
     showToast('Map failed to initialize. Check your MapKit token.', 'error', 0);
+  }
+
+  // Re-render all active providers at the appropriate H3 resolution when zoom changes.
+  if (mapInst) {
+    let _resolutionDebounce = null;
+    mapInst.addEventListener('region-change-end', () => {
+      clearTimeout(_resolutionDebounce);
+      _resolutionDebounce = setTimeout(() => {
+        const res = targetResolution(mapInst.region.span.latitudeDelta);
+        for (const [, entry] of activeProviders) {
+          if (!entry.h3Indices?.length) continue;
+          if (entry.renderedResolution === res) continue;
+          entry.renderedResolution = res;
+          const geojson = h3ToGeoJSON(aggregateH3(entry.h3Indices, res));
+          addCoverageOverlay(entry.provider.id, entry.techCode, entry.colorHex, geojson);
+          if (!entry.visible) toggleCoverageOverlay(entry.provider.id, entry.techCode, false);
+        }
+      }, 150);
+    });
   }
 
   // Fail fast in production if the backend is misrouted/misconfigured.
@@ -94,7 +117,20 @@ async function handleProviderAdd(provider, techCode) {
       return;
     }
 
-    addCoverageOverlay(provider.id, techCode, color.hex, geojson);
+    // Store raw H3 indices so we can re-render at any resolution on zoom change.
+    const h3Indices = extractH3Indices(geojson);
+    const entry = activeProviders.get(key);
+    if (entry) entry.h3Indices = h3Indices;
+
+    // Render at resolution appropriate for the current zoom level.
+    const currentSpan = mapInst?.region?.span?.latitudeDelta ?? 22;
+    const res = targetResolution(currentSpan);
+    if (entry) entry.renderedResolution = res;
+    const renderGeoJSON = h3Indices.length
+      ? h3ToGeoJSON(aggregateH3(h3Indices, res))
+      : geojson;
+
+    addCoverageOverlay(provider.id, techCode, color.hex, renderGeoJSON);
     fitMapToGeoJSON(geojson);
 
     const count = geojson.features.length;
