@@ -1,199 +1,96 @@
 import { Hono } from 'hono';
-import { searchProviders, getProviderTechnologies, searchBdcProviders } from '../services/fcc.js';
 
 const router = new Hono();
 
-// ─── FCC BDC tile config (for tech probing) ──────────────────────────────────────────────
+// ─── Local CSV helpers (Node.js only) ────────────────────────────────────────
 
-const PROCESS_UUID = 'ae8c39d5-170d-4178-8147-5ac7dcaca06a';
-const FCC_TILE_BASE = 'https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile';
-const BROWSER_HEADERS = {
-  'User-Agent':     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept':         'application/x-protobuf,*/*',
-  'Referer':        'https://broadbandmap.fcc.gov/',
-  'Origin':         'https://broadbandmap.fcc.gov',
-  'sec-fetch-site': 'same-origin',
-  'sec-fetch-mode': 'cors',
-  'sec-fetch-dest': 'empty',
-};
-
-// 8 zoom-5 tiles covering all major US regions
-const PROBE_TILES = [
-  [5, 4, 11], [5, 5, 12], [5, 6, 12], [5, 7, 11],
-  [5, 7, 12], [5, 8, 11], [5, 9, 11], [5, 9, 12],
-];
-
-// BDC-valid tech codes accepted by the hex tile endpoint.
-const PROBE_TECHS = ['10', '40', '50', '60', '70'];
-
-const techProbeCache = new Map();
-const bdcNameResolutionCache = new Map();
-
-async function probeTechs(providerId) {
-  const cacheKey = `probe:${providerId}`;
-  if (techProbeCache.has(cacheKey)) return techProbeCache.get(cacheKey);
-
-  const results = await Promise.all(
-    PROBE_TECHS.map(async (tech) => {
-      const hits = await Promise.all(
-        PROBE_TILES.map(async ([z, x, y]) => {
-          const url = `${FCC_TILE_BASE}/${PROCESS_UUID}/${providerId}/${tech}/r/0/0/${z}/${x}/${y}`;
-          try {
-            const res = await fetch(url, {
-              headers: BROWSER_HEADERS,
-              signal: AbortSignal.timeout(2500),
-            });
-            if (!res.ok) return false;
-            const buf = await res.arrayBuffer();
-            return buf.byteLength > 0;
-          } catch { return false; }
-        })
-      );
-      return hits.some(Boolean) ? tech : null;
-    })
-  );
-
-  const techs = results.filter(Boolean).sort((a, b) => Number(a) - Number(b));
-  if (techs.length > 0) {
-    techProbeCache.set(cacheKey, techs);
-    setTimeout(() => techProbeCache.delete(cacheKey), 60 * 60 * 1000);
-  }
-  return techs;
+async function localSearch(query, limit) {
+  const { searchLocalProviders } = await import('../services/localCsv.js');
+  return searchLocalProviders(query, limit);
 }
 
-function normalizeName(str) {
-  return String(str || '')
-    .toLowerCase()
-    .replace(/\([^)]*\)/g, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+async function localTechs(providerId) {
+  const { getLocalProviderTechs } = await import('../services/localCsv.js');
+  return getLocalProviderTechs(providerId);
 }
 
-function meaningfulTokens(name) {
-  const STOP = new Set([
-    'inc', 'llc', 'ltd', 'corp', 'co', 'company', 'corporation', 'communications',
-    'communication', 'the', 'of', 'and', 'wireless', 'telephone', 'broadband',
-    'network', 'networks', 'services', 'service', 'holdings', 'group',
-  ]);
-  return normalizeName(name)
-    .split(' ')
-    .filter((token) => token.length >= 3 && !STOP.has(token));
-}
+// ─── FCC API fallback ─────────────────────────────────────────────────────────
 
-function scoreNameMatch(form477Name, bdcName) {
-  const left = meaningfulTokens(form477Name);
-  if (!left.length) return 0;
-  const right = new Set(meaningfulTokens(bdcName));
-  let hits = 0;
-  for (const token of left) {
-    if (right.has(token)) hits += 1;
-  }
-  return hits;
-}
-
-async function resolveBdcProviderByName(providerName) {
-  const cacheKey = normalizeName(providerName);
-  if (bdcNameResolutionCache.has(cacheKey)) {
-    return bdcNameResolutionCache.get(cacheKey);
-  }
-
-  const tokens = meaningfulTokens(providerName);
-  if (!tokens.length) {
-    bdcNameResolutionCache.set(cacheKey, null);
-    return null;
-  }
-
-  const candidateQueries = [];
-  candidateQueries.push(tokens.slice(0, 2).join(' '));
-  candidateQueries.push(tokens[0]);
-
-  const dedup = [...new Set(candidateQueries.filter(Boolean))];
-  for (const query of dedup) {
-    try {
-      const rows = await searchBdcProviders(query, 25);
-      if (!rows.length) continue;
-
-      let best = null;
-      let bestScore = 0;
-      for (const row of rows) {
-        const score = scoreNameMatch(providerName, row.name);
-        if (score > bestScore) {
-          best = row;
-          bestScore = score;
-        }
-      }
-
-      const minScore = Math.min(2, meaningfulTokens(providerName).length);
-      if (best && bestScore >= minScore) {
-        bdcNameResolutionCache.set(cacheKey, best);
-        return best;
-      }
-    } catch (err) {
-      console.warn('[providers] BDC name resolution failed:', err.message);
-    }
-  }
-
-  bdcNameResolutionCache.set(cacheKey, null);
-  return null;
-}
-
-export async function resolveProviderSearch(query, limit = 20) {
+async function fccSearch(query, limit) {
+  const { searchProviders } = await import('../services/fcc.js');
   return searchProviders(query, limit);
 }
 
-export async function resolveProviderTechnologies(providerId, providerName = '') {
-  let resolvedBdc = null;
+async function fccTechs(providerId, providerName) {
+  const { searchProviders, getProviderTechnologies } = await import('../services/fcc.js');
 
-  try {
-    const techs = await probeTechs(providerId);
-    if (techs.length > 0) {
-      return { technologies: techs, source: 'bdc', providerId };
-    }
-  } catch (err) {
-    console.warn('[providers/:id/technologies] BDC probe failed:', err.message);
+  // BDC tile probe
+  const PROCESS_UUID = 'ae8c39d5-170d-4178-8147-5ac7dcaca06a';
+  const FCC_TILE_BASE = 'https://broadbandmap.fcc.gov/nbm/map/api/fixed/provider/hex/tile';
+  const PROBE_TILES = [[5,4,11],[5,5,12],[5,6,12],[5,7,11],[5,7,12],[5,8,11],[5,9,11],[5,9,12]];
+  const PROBE_TECHS = ['10','40','50','60','70'];
+  const HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/x-protobuf,*/*',
+    'Referer': 'https://broadbandmap.fcc.gov/',
+    'Origin': 'https://broadbandmap.fcc.gov',
+  };
+
+  async function probe(id) {
+    const results = await Promise.all(PROBE_TECHS.map(async (tech) => {
+      const hits = await Promise.all(PROBE_TILES.map(async ([z, x, y]) => {
+        try {
+          const res = await fetch(
+            `${FCC_TILE_BASE}/${PROCESS_UUID}/${id}/${tech}/r/0/0/${z}/${x}/${y}`,
+            { headers: HEADERS, signal: AbortSignal.timeout(2500) }
+          );
+          if (!res.ok) return false;
+          return (await res.arrayBuffer()).byteLength > 0;
+        } catch { return false; }
+      }));
+      return hits.some(Boolean) ? tech : null;
+    }));
+    return results.filter(Boolean).sort((a, b) => Number(a) - Number(b));
   }
 
-  if (providerName) {
-    resolvedBdc = await resolveBdcProviderByName(providerName);
-    if (resolvedBdc && resolvedBdc.id !== String(providerId)) {
-      try {
-        const techs = await probeTechs(resolvedBdc.id);
-        if (techs.length > 0) {
-          return {
-            technologies: techs,
-            source: 'bdc_resolved',
-            providerId: resolvedBdc.id,
-            providerName: resolvedBdc.name,
-            resolvedFromProviderId: String(providerId),
-          };
-        }
-      } catch (err) {
-        console.warn('[providers] Resolved BDC probe failed:', err.message);
-      }
-    }
-  }
+  const techs = await probe(providerId);
+  if (techs.length) return { technologies: techs, source: 'bdc', providerId };
 
   const rows = await getProviderTechnologies(providerId);
-  const technologies = rows
-    .map((r) => r.techcode)
-    .filter(Boolean)
+  const technologies = [...new Set(rows.map(r => r.techcode).filter(Boolean))]
     .sort((a, b) => Number(a) - Number(b));
-
-  if (resolvedBdc && resolvedBdc.id !== String(providerId)) {
-    return {
-      technologies,
-      source: 'bdc_resolved',
-      providerId: resolvedBdc.id,
-      providerName: resolvedBdc.name,
-      resolvedFromProviderId: String(providerId),
-    };
-  }
-
   return { technologies, source: 'form477', providerId };
 }
 
-// ─── Routes ─────────────────────────────────────────────────────────────────────────────
+// ─── Exported resolvers (used by flat aliases in worker.js) ──────────────────
+
+export async function resolveProviderSearch(query, limit = 20) {
+  try {
+    const results = await localSearch(query, limit);
+    if (results.length > 0) {
+      console.info(`[providers] local search "${query}" → ${results.length} results`);
+      return results;
+    }
+  } catch (err) {
+    console.warn('[providers] local search unavailable, falling back to FCC:', err.message);
+  }
+  return fccSearch(query, limit);
+}
+
+export async function resolveProviderTechnologies(providerId, providerName = '') {
+  try {
+    const techs = await localTechs(providerId);
+    if (techs.length > 0) {
+      console.info(`[providers] local techs ${providerId} → ${techs}`);
+      return { technologies: techs, source: 'local', providerId };
+    }
+  } catch (err) {
+    console.warn('[providers] local tech lookup unavailable, falling back to FCC:', err.message);
+  }
+  return fccTechs(providerId, providerName);
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
 router.get('/search', async (c) => {
   const q = (c.req.query('q') || '').trim();
@@ -204,7 +101,7 @@ router.get('/search', async (c) => {
     return c.json({ providers });
   } catch (err) {
     console.error('[providers/search]', err.message);
-    return c.json({ error: 'Failed to reach FCC data source', detail: err.message }, 502);
+    return c.json({ error: 'Provider search failed', detail: err.message }, 502);
   }
 });
 
@@ -217,7 +114,7 @@ router.get('/:id/technologies', async (c) => {
     return c.json(data);
   } catch (err) {
     console.error('[providers/:id/technologies]', err.message);
-    return c.json({ error: 'Failed to reach FCC data source', detail: err.message }, 502);
+    return c.json({ error: 'Provider tech lookup failed', detail: err.message }, 502);
   }
 });
 
