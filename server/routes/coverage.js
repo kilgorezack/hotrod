@@ -35,7 +35,7 @@ router.get('/', async (c) => {
       ...geojson,
       meta: {
         stateCount: geojson.features.length,
-        dataDate: 'June 2020',
+        dataDate: 'Jun 30, 2025',
       },
     });
   } catch (err) {
