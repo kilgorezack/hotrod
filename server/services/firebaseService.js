@@ -11,10 +11,17 @@
  */
 import { cellToBoundary } from 'h3-js';
 
-const BASE = (process.env.FIREBASE_STORAGE_BASE || '').replace(/\/$/, '');
+// Use Firebase Storage REST URL format — Security Rules apply to these.
+// FIREBASE_STORAGE_BUCKET e.g. "hotrod-7a59d.firebasestorage.app"
+const BUCKET = (process.env.FIREBASE_STORAGE_BUCKET || '').replace(/\/$/, '');
+
+function storageUrl(storagePath) {
+  const encoded = encodeURIComponent(storagePath);
+  return `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o/${encoded}?alt=media`;
+}
 
 function isConfigured() {
-  return BASE.length > 0;
+  return BUCKET.length > 0;
 }
 
 // ─── Provider index ───────────────────────────────────────────────────────────
@@ -24,7 +31,7 @@ let _providersPromise = null;
 
 function getProviders() {
   if (!_providersPromise) {
-    _providersPromise = fetch(`${BASE}/providers.json`)
+    _providersPromise = fetch(storageUrl('providers.json'))
       .then(r => {
         if (!r.ok) throw new Error(`providers.json fetch failed: ${r.status}`);
         return r.json();
@@ -81,7 +88,7 @@ export async function getFirebaseHexCoverage(providerId, techCode) {
   const cacheKey = `${providerId}:${techCode}`;
   if (_hexCache.has(cacheKey)) return _hexCache.get(cacheKey);
 
-  const url = `${BASE}/hexes/${providerId}_${techCode}.json`;
+  const url = storageUrl(`hexes/${providerId}_${techCode}.json`);
   let h3arr;
   try {
     const res = await fetch(url);
