@@ -109,6 +109,18 @@ router.get('/:providerId/:techCode', async (c) => {
     return c.json(cached);
   }
 
+  // Try local CSV files first (Node.js only — dynamic import fails silently in Workers).
+  try {
+    const { getLocalHexCoverage } = await import('../services/localCsv.js');
+    const local = await getLocalHexCoverage(providerId, techCode);
+    if (local) {
+      _cache.set(cacheKey, local);
+      setTimeout(() => _cache.delete(cacheKey), 3_600_000);
+      c.header('Cache-Control', 'public, max-age=3600');
+      return c.json(local);
+    }
+  } catch { /* not in Node.js or h3-js unavailable — fall through to FCC API */ }
+
   const tiles = getUsTiles(ZOOM);
   const start = Date.now();
 
