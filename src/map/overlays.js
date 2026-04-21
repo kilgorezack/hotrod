@@ -17,36 +17,32 @@ const providerOverlays = new Map();
  * @param {object} geojson    — FeatureCollection of county polygons
  * @returns {number}           — number of overlays added
  */
-export async function addCoverageOverlay(providerId, techCode, colorHex, geojson) {
+export function addCoverageOverlay(providerId, techCode, colorHex, geojson) {
   const key = layerKey(providerId, techCode);
 
-  // Remove existing overlay for this key if any
   removeCoverageOverlay(providerId, techCode);
 
   if (!map) return 0;
   if (!geojson?.features?.length) return 0;
 
-  const fillColor = hexToRgba(colorHex, 0.28);
-  const strokeColor = hexToRgba(colorHex, 0.65);
-
   const style = new mapkit.Style({
-    fillColor,
-    strokeColor,
-    lineWidth: 0.8,
+    fillColor:     hexToRgba(colorHex, 0.28),
+    strokeColor:   hexToRgba(colorHex, 0.65),
+    lineWidth:     0.8,
     strokeOpacity: 0.8,
-    fillOpacity: 1, // opacity already baked into fillColor rgba
+    fillOpacity:   1,
   });
 
-  // mapkit.importGeoJSON returns an ItemCollection or calls a callback
-  const items = await importGeoJSONAsync(geojson);
   const overlays = [];
-
-  for (const item of items) {
-    if (item instanceof mapkit.PolygonOverlay || item instanceof mapkit.PolylineOverlay) {
-      item.style = style;
-      item.data = { providerId, techCode };
-      overlays.push(item);
-    }
+  for (const feature of geojson.features) {
+    const rings = feature.geometry?.coordinates;
+    if (!rings?.[0]?.length) continue;
+    // GeoJSON coords are [lng, lat]; MapKit.Coordinate takes (lat, lng)
+    // Drop the closing duplicate point (last === first in GeoJSON rings)
+    const points = rings[0].slice(0, -1).map(([lng, lat]) => new mapkit.Coordinate(lat, lng));
+    if (points.length < 3) continue;
+    const overlay = new mapkit.PolygonOverlay(points, { style, data: { providerId, techCode } });
+    overlays.push(overlay);
   }
 
   if (overlays.length > 0) {
@@ -93,26 +89,6 @@ export function removeAllOverlays() {
   }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 function layerKey(providerId, techCode) {
   return `${providerId}:${techCode}`;
-}
-
-/**
- * Promisify mapkit.importGeoJSON.
- * Returns an array of MapKit items (overlays, annotations).
- */
-function importGeoJSONAsync(geojsonData) {
-  return new Promise((resolve, reject) => {
-    mapkit.importGeoJSON(geojsonData, (err, result) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      // result is an ItemCollection — extract the items array
-      const items = result.items ?? result ?? [];
-      resolve(Array.isArray(items) ? items : [items]);
-    });
-  });
 }
