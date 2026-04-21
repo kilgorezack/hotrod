@@ -9,7 +9,7 @@
  *   getFirebaseProviderTechs(providerId)   → ['10', '40', ...]
  *   getFirebaseHexCoverage(id, techCode)   → GeoJSON FeatureCollection | null
  */
-import { cellToBoundary } from 'h3-js';
+import { cellToBoundary, cellToParent, getResolution } from 'h3-js';
 
 // Use Firebase Storage REST URL format — Security Rules apply to these.
 // FIREBASE_STORAGE_BUCKET e.g. "hotrod-7a59d.firebasestorage.app"
@@ -70,15 +70,42 @@ export async function getFirebaseProviderTechs(providerId) {
 
 // ─── Hex coverage ─────────────────────────────────────────────────────────────
 
-function h3ToFeature(h3index) {
-  const boundary = cellToBoundary(h3index);
-  const ring = boundary.map(([lat, lng]) => [lng, lat]);
-  ring.push(ring[0]);
-  return {
-    type: 'Feature',
-    geometry: { type: 'Polygon', coordinates: [ring] },
-    properties: { h3index },
-  };
+/**
+ * Aggregate a large H3 array to a coarser resolution so the server response
+ * stays within reasonable size/time limits.
+ *
+ *   > 1 500 000 cells → res 5 (~252 km²/cell,  ~10 k–30 k unique parents)
+ *   >   300 000 cells → res 6 (~36 km²/cell,   ~50 k–150 k unique parents)
+ *   otherwise          keep original (res 7/8)
+ *
+ * The client always re-aggregates client-side for the current zoom level,
+ * so coarsening here only affects the maximum zoom-in fidelity for huge
+ * providers like satellite carriers — which is an acceptable trade-off.
+ */
+function serverAggregate(h3arr) {
+  const targetRes = h3arr.length > 1_500_000 ? 5
+                  : h3arr.length >   300_000 ? 6
+                  : null;
+  if (targetRes === null) return h3arr;
+
+  const seen = new Set();
+  for (const h of h3arr) {
+    if (!h) continue;
+    try {
+      const cell = getResolution(h) <= targetRes ? h : cellToParent(h, targetRes);
+      seen.add(cell);
+    } catch { /* malformed — skip */ }
+  }
+  return [...seen];
+}
+
+/**
+ * Return a minimal GeoJSON feature — geometry is null because the client
+ * reconstructs polygon coordinates from h3index via h3ToGeoJSON().
+ * Skipping cellToBoundary() here saves ~10–100× server CPU for large providers.
+ */
+function h3ToMinimalFeature(h3index) {
+  return { type: 'Feature', geometry: null, properties: { h3index } };
 }
 
 const _hexCache = new Map();
@@ -102,13 +129,17 @@ export async function getFirebaseHexCoverage(providerId, techCode) {
 
   if (!Array.isArray(h3arr) || h3arr.length === 0) return null;
 
-  const features = h3arr.map(h3ToFeature);
+  const aggregated = serverAggregate(h3arr);
+  const features = aggregated.map(h3ToMinimalFeature);
   const result = { type: 'FeatureCollection', features };
 
   _hexCache.set(cacheKey, result);
   setTimeout(() => _hexCache.delete(cacheKey), 3_600_000);
 
-  console.info(`[firebase] ${cacheKey} — ${features.length} hexes`);
+  console.info(
+    `[firebase] ${cacheKey} — ${h3arr.length} raw → ${aggregated.length} hexes` +
+    (aggregated.length < h3arr.length ? ` (aggregated to res ${aggregated.length > 0 ? getResolution(aggregated[0]) : '?'})` : '')
+  );
   return result;
 }
 

@@ -131,7 +131,7 @@ async function handleProviderAdd(provider, techCode) {
       : geojson;
 
     addCoverageOverlay(provider.id, techCode, color.hex, renderGeoJSON);
-    fitMapToGeoJSON(geojson);
+    fitMapToGeoJSON(renderGeoJSON); // renderGeoJSON has real coordinates; geojson may have null geometry
 
     const count = geojson.features.length;
     updateCardCoverage(provider.id, techCode, count, dataSource);
