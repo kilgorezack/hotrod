@@ -50,7 +50,7 @@ const FIPS_TO_ABBR = {
   '33':'NH','34':'NJ','35':'NM','36':'NY','37':'NC','38':'ND','39':'OH',
   '40':'OK','41':'OR','42':'PA','44':'RI','45':'SC','46':'SD','47':'TN',
   '48':'TX','49':'UT','50':'VT','51':'VA','53':'WA','54':'WV','55':'WI',
-  '56':'WY','72':'PR',
+  '56':'WY','60':'AS','66':'GU','69':'MP','72':'PR','78':'VI',
 };
 
 // ─── Validate env ─────────────────────────────────────────────────────────────
@@ -141,10 +141,10 @@ async function processAndUploadFile(filePath, techCode) {
     rl.on('error', reject);
   });
 
-  // Upload hex files immediately, then free memory
+  // Upload hex files immediately, merging with any existing Firebase data.
   let uploaded = 0;
   const tasks = [...hexes.entries()].map(([key, h3Set]) => async () => {
-    await uploadJSON(`hexes/${key}.json`, [...h3Set]);
+    await mergeUploadHex(`hexes/${key}.json`, h3Set);
     uploaded++;
     if (uploaded % 50 === 0 || uploaded === hexes.size) {
       process.stdout.write(`\r  ${uploaded}/${hexes.size} hex files`);
@@ -162,6 +162,28 @@ async function uploadJSON(storagePath, data) {
   if (DRY_RUN) { console.log(`  [dry-run] would upload ${storagePath}`); return; }
   const file = bucket.file(storagePath);
   await file.save(JSON.stringify(data), {
+    contentType: 'application/json',
+    metadata: { cacheControl: 'public, max-age=86400' },
+  });
+}
+
+/**
+ * Download any existing hex array from Firebase, merge with newH3Set, then upload.
+ * This ensures multi-state providers accumulate hexes across all states rather
+ * than each state overwriting the previous one.
+ */
+async function mergeUploadHex(storagePath, newH3Set) {
+  if (DRY_RUN) { console.log(`  [dry-run] would merge-upload ${storagePath}`); return; }
+  const file = bucket.file(storagePath);
+  const merged = new Set(newH3Set);
+  try {
+    const [buf] = await file.download();
+    const existing = JSON.parse(buf.toString());
+    if (Array.isArray(existing)) {
+      for (const h of existing) merged.add(h);
+    }
+  } catch { /* file doesn't exist yet — that's fine */ }
+  await file.save(JSON.stringify([...merged]), {
     contentType: 'application/json',
     metadata: { cacheControl: 'public, max-age=86400' },
   });
