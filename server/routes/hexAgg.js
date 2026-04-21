@@ -110,20 +110,7 @@ router.get('/:providerId/:techCode', async (c) => {
     return c.json(cached);
   }
 
-  // 1. Firebase Storage (all states, highest priority)
-  try {
-    const firebase = await getFirebaseHexCoverage(providerId, techCode);
-    if (firebase) {
-      _cache.set(cacheKey, firebase);
-      setTimeout(() => _cache.delete(cacheKey), 3_600_000);
-      c.header('Cache-Control', 'public, max-age=3600');
-      return c.json(firebase);
-    }
-  } catch (err) {
-    console.warn('[hex-agg] firebase lookup failed:', err.message);
-  }
-
-  // 2. Local JSON files (committed states — Node.js only)
+  // 1. Local JSON files (committed states — Node.js only)
   try {
     const { getLocalHexCoverage } = await import('../services/localCsv.js');
     const local = await getLocalHexCoverage(providerId, techCode);
@@ -179,6 +166,14 @@ router.get('/:providerId/:techCode', async (c) => {
 
   _cache.set(cacheKey, result);
   setTimeout(() => _cache.delete(cacheKey), 3_600_000);
+
+  // Back-fill Firebase with the complete FCC tile result so the next request
+  // is served instantly from Firebase (which now has accurate nationwide data).
+  if (features.length > 0) {
+    import('../services/firebaseService.js')
+      .then(({ saveFirebaseHexCoverage }) => saveFirebaseHexCoverage(providerId, techCode, features))
+      .catch(() => {});
+  }
 
   c.header('Cache-Control', 'public, max-age=3600');
   return c.json(result);

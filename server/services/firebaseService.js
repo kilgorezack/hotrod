@@ -111,3 +111,50 @@ export async function getFirebaseHexCoverage(providerId, techCode) {
   console.info(`[firebase] ${cacheKey} — ${features.length} hexes`);
   return result;
 }
+
+/**
+ * Write a complete GeoJSON FeatureCollection (sourced from FCC tiles) back to
+ * Firebase Storage so future requests are served instantly.
+ * Overwrites any previously incomplete CSV-derived data.
+ */
+export async function saveFirebaseHexCoverage(providerId, techCode, features) {
+  if (!isConfigured() || !features?.length) return;
+  const BUCKET_NAME = BUCKET;
+  if (!BUCKET_NAME) return;
+
+  // Extract h3index values from the FCC tile features
+  const h3arr = features.map(f => f.properties?.h3index).filter(Boolean);
+  if (!h3arr.length) return;
+
+  const storagePath = `hexes/${providerId}_${techCode}.json`;
+  const url = `https://firebasestorage.googleapis.com/v0/b/${BUCKET_NAME}/o/${encodeURIComponent(storagePath)}`;
+
+  try {
+    // Firebase Storage REST upload requires an auth token — skip silently if
+    // we don't have write credentials in this environment (public read-only).
+    const adminModule = await import('firebase-admin/app').catch(() => null);
+    if (!adminModule) return;
+    const { getApps, initializeApp, cert } = adminModule;
+    const { getStorage } = await import('firebase-admin/storage');
+    if (!getApps().length) {
+      if (!process.env.FIREBASE_SERVICE_ACCOUNT) return;
+      initializeApp({
+        credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
+        storageBucket: BUCKET_NAME,
+      });
+    }
+    const bucket = getStorage().bucket();
+    const file = bucket.file(storagePath);
+    await file.save(JSON.stringify(h3arr), {
+      contentType: 'application/json',
+      metadata: { cacheControl: 'public, max-age=86400' },
+    });
+    // Update in-memory cache with the fresh complete data
+    const result = { type: 'FeatureCollection', features };
+    _hexCache.set(`${providerId}:${techCode}`, result);
+    console.info(`[firebase] saved complete tile data for ${providerId}:${techCode} — ${h3arr.length} hexes`);
+  } catch (err) {
+    // Non-fatal — app still works without the write-back
+    console.warn(`[firebase] write-back failed for ${providerId}:${techCode}:`, err.message);
+  }
+}
