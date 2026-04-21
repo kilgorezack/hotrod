@@ -3,7 +3,7 @@
  * Main application entry point
  */
 
-import { initMap } from './map/init.js';
+import { initMap, fitMapToGeoJSON } from './map/init.js';
 import { addCoverageOverlay, removeCoverageOverlay, toggleCoverageOverlay } from './map/overlays.js';
 import { initAddProvider, onProviderAdd } from './ui/addProvider.js';
 import { initInsights } from './ui/insights.js';
@@ -94,7 +94,8 @@ async function handleProviderAdd(provider, techCode) {
       return;
     }
 
-    await addCoverageOverlay(provider.id, techCode, color.hex, geojson);
+    addCoverageOverlay(provider.id, techCode, color.hex, geojson);
+    fitMapToGeoJSON(geojson);
 
     const count = geojson.features.length;
     updateCardCoverage(provider.id, techCode, count, dataSource);

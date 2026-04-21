@@ -53,6 +53,48 @@ export async function initMap() {
   return map;
 }
 
+/**
+ * Animate the map to fit the bounding box of a GeoJSON FeatureCollection.
+ * Adds padding around the bbox and clamps the span so it never zooms
+ * in too tightly (street-level) or too far out (whole-country).
+ */
+export function fitMapToGeoJSON(geojson) {
+  if (!map || !geojson?.features?.length) return;
+
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLng = Infinity, maxLng = -Infinity;
+
+  for (const feature of geojson.features) {
+    const ring = feature.geometry?.coordinates?.[0];
+    if (!ring) continue;
+    for (const [lng, lat] of ring) {
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+  }
+
+  if (!isFinite(minLat)) return;
+
+  const PAD = 0.15; // 15% padding on each side
+  const MIN_SPAN = 0.4; // ~45 km — never zoom in tighter than this
+  const MAX_SPAN = 10;  // ~1100 km — never zoom out wider than this
+
+  const latSpan = Math.max(maxLat - minLat, 0.01);
+  const lngSpan = Math.max(maxLng - minLng, 0.01);
+
+  const paddedLat = Math.min(Math.max(latSpan * (1 + PAD * 2), MIN_SPAN), MAX_SPAN);
+  const paddedLng = Math.min(Math.max(lngSpan * (1 + PAD * 2), MIN_SPAN), MAX_SPAN);
+
+  const region = new mapkit.CoordinateRegion(
+    new mapkit.Coordinate((minLat + maxLat) / 2, (minLng + maxLng) / 2),
+    new mapkit.CoordinateSpan(paddedLat, paddedLng)
+  );
+
+  map.setRegionAnimated(region, true);
+}
+
 function showMapTokenWarning() {
   const mapEl = document.getElementById('map');
   if (!mapEl) return;
