@@ -141,11 +141,15 @@ const coverageProviders = [...providerMap.values()]
     };
   });
 
-// Add any bsp-stats entries that weren't matched to a coverage index provider.
-// These are real ISPs (Ting, Hawaiian Telecom, etc.) that should still appear
-// in the Insights search even if they're not in the coverage index.
-const unmatchedBsp = bspProviders
-  .filter(p => !matchedBspNames.has(p.name))
+// Always include ALL bsp-stats entries under their consumer-facing names
+// (e.g. "Comcast / Xfinity", "T-Mobile Home Internet") so users can find
+// providers by the names they actually know, even if the FCC BDC uses a
+// different registered name (e.g. "Xfinity", "T-Mobile").
+// Skip any whose exact name is already in the coverage index output.
+const coverageNames = new Set(coverageProviders.map(p => p.name));
+
+const bspEntries = bspProviders
+  .filter(p => !coverageNames.has(p.name)) // avoid exact-name duplicates
   .map(p => ({
     id:                    null,
     name:                  p.name,
@@ -155,9 +159,9 @@ const unmatchedBsp = bspProviders
     states:                p.states                ?? [],
   }));
 
-console.log(`Added ${unmatchedBsp.length} unmatched bsp-stats entries.`);
+console.log(`Added ${bspEntries.length} bsp-stats consumer-name entries.`);
 
-const providers = [...coverageProviders, ...unmatchedBsp]
+const providers = [...coverageProviders, ...bspEntries]
   .sort((a, b) => a.name.localeCompare(b.name));
 
 console.log(`Matched ${matched} providers to bsp-stats ratings.`);
