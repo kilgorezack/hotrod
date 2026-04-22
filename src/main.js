@@ -4,6 +4,7 @@
  */
 
 import { initMap, fitMapToGeoJSON } from './map/init.js';
+import { initAreaSearch } from './ui/areaSearch.js';
 import { addCoverageOverlay, removeCoverageOverlay, toggleCoverageOverlay } from './map/overlays.js';
 import { initAddProvider, onProviderAdd } from './ui/addProvider.js';
 import { initInsights } from './ui/insights.js';
@@ -38,6 +39,10 @@ async function init() {
   } catch (err) {
     console.error('[map init]', err);
     showToast('Map failed to initialize. Check your MapKit token.', 'error', 0);
+  }
+
+  if (mapInst) {
+    initAreaSearch(mapInst, handleProviderAdd);
   }
 
   // Re-render all active providers at the appropriate H3 resolution when zoom changes.

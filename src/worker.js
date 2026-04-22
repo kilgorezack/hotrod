@@ -9,10 +9,11 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 
 import providersRouter, { resolveProviderSearch, resolveProviderTechnologies } from '../server/routes/providers.js';
-import coverageRouter  from '../server/routes/coverage.js';
-import hexAggRouter    from '../server/routes/hexAgg.js';
-import geoRouter       from '../server/routes/geo.js';
-import tilesRouter     from '../server/routes/tiles.js';
+import coverageRouter      from '../server/routes/coverage.js';
+import hexAggRouter        from '../server/routes/hexAgg.js';
+import geoRouter           from '../server/routes/geo.js';
+import tilesRouter         from '../server/routes/tiles.js';
+import areaProvidersRouter from '../server/routes/areaProviders.js';
 import { getAllCounties } from '../server/services/counties.js';
 
 const app = new Hono();
@@ -25,11 +26,12 @@ app.use('*', cors({
 
 // ── API Routes ────────────────────────────────────────────────────────────────
 
-app.route('/api/providers',    providersRouter);
-app.route('/api/coverage/hex', hexAggRouter);   // must come BEFORE /api/coverage
-app.route('/api/coverage',     coverageRouter);
-app.route('/api/geo',          geoRouter);
-app.route('/api/tiles',        tilesRouter);
+app.route('/api/providers',       providersRouter);
+app.route('/api/coverage/hex',    hexAggRouter);       // must come BEFORE /api/coverage
+app.route('/api/coverage',        coverageRouter);
+app.route('/api/geo',             geoRouter);
+app.route('/api/tiles',           tilesRouter);
+app.route('/api/area-providers',  areaProvidersRouter);
 
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
