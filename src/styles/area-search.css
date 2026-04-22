@@ -10,7 +10,7 @@
   position: fixed;
   top: 16px;
   right: 16px;
-  z-index: 50;
+  z-index: 500;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -59,10 +59,10 @@
 
 .draw-hint {
   position: fixed;
-  bottom: 72px;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 50;
+  z-index: 500;          /* above MapKit canvas layers */
   display: flex;
   align-items: center;
   gap: 12px;
@@ -114,7 +114,7 @@
   right: 64px;          /* sits to the left of the toolbar button */
   width: 300px;
   max-height: calc(100vh - 80px);
-  z-index: 50;
+  z-index: 500;          /* above MapKit canvas layers */
   display: flex;
   flex-direction: column;
   background: rgba(13, 17, 23, 0.96);
@@ -125,6 +125,11 @@
   box-shadow: 0 8px 32px rgba(0,0,0,0.55);
   overflow: hidden;
   animation: panel-in 200ms ease;
+}
+
+/* Collapsed: only the header is visible, no body */
+.area-results-panel.collapsed {
+  max-height: none;
 }
 
 @keyframes panel-in {

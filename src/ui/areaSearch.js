@@ -44,7 +44,8 @@ export function initAreaSearch(mapInstance, onProviderAdd) {
   // Toolbar button toggles draw mode
   const btn = document.getElementById('area-search-btn');
   if (btn) {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       if (isDrawing()) {
         stopDraw();
         _handleCancel();
@@ -54,22 +55,27 @@ export function initAreaSearch(mapInstance, onProviderAdd) {
     });
   }
 
-  // Cancel button in hint bar
+  // Cancel button in hint bar — stopPropagation prevents map canvas from eating the click
   const cancelBtn = document.getElementById('draw-cancel-btn');
   if (cancelBtn) {
-    cancelBtn.addEventListener('click', () => {
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
       stopDraw();
       _handleCancel();
     });
   }
 
-  // Close button on results panel
+  // Close / minimise button on results panel
   const closeBtn = document.getElementById('area-results-close');
   if (closeBtn) {
-    closeBtn.addEventListener('click', _dismissResults);
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      _dismissResults();
+    });
   }
 
-  // Escape key handled inside drawTool, but also dismiss results panel
+  // Escape key also dismisses results
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') _dismissResults();
   });
@@ -80,8 +86,8 @@ export function initAreaSearch(mapInstance, onProviderAdd) {
 function _startDraw(btn) {
   startDraw();
   btn?.classList.add('active');
-  _setHint(true, 'Click on the map to draw — double-click or click start point to finish');
-  _hideResults();
+  _setHint(true, 'Click to draw an area — double-click or click start point to finish');
+  _collapseResults(); // collapse (don't dismiss) while drawing
   clearSelectionOverlay();
 }
 
@@ -121,6 +127,7 @@ function _showLoading() {
   const body  = document.getElementById('area-results-body');
   if (!panel || !body) return;
 
+  _setExpanded(true);
   body.innerHTML = `
     <div class="area-results-loading">
       <svg class="area-loading-spinner" width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -136,18 +143,46 @@ function _showError(message) {
   const panel = document.getElementById('area-results-panel');
   const body  = document.getElementById('area-results-body');
   if (!panel || !body) return;
+  _setExpanded(true);
   body.innerHTML = `<p class="area-results-empty">${_esc(message)}</p>`;
   panel.hidden = false;
 }
 
-function _hideResults() {
+/** Collapse the panel to just its header (don't hide it entirely). */
+function _collapseResults() {
   const panel = document.getElementById('area-results-panel');
-  if (panel) panel.hidden = true;
+  if (!panel) return;
+  _setExpanded(false);
+  // Don't hide — keep collapsed header visible so user knows results exist
 }
 
 function _dismissResults() {
-  _hideResults();
+  const panel = document.getElementById('area-results-panel');
+  if (panel) {
+    _setExpanded(false);
+    panel.hidden = true;
+  }
   clearSelectionOverlay();
+}
+
+/** Toggle the expanded/collapsed state of the results panel body. */
+function _setExpanded(expanded) {
+  const panel = document.getElementById('area-results-panel');
+  const body  = document.getElementById('area-results-body');
+  const btn   = document.getElementById('area-results-close');
+  if (!panel) return;
+
+  if (expanded) {
+    panel.classList.remove('collapsed');
+    if (body) body.hidden = false;
+    if (btn) btn.setAttribute('aria-label', 'Close results');
+    if (btn) btn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+      <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>`;
+  } else {
+    panel.classList.add('collapsed');
+    if (body) body.hidden = true;
+  }
 }
 
 function _renderResults(providers, onProviderAdd) {
@@ -155,14 +190,17 @@ function _renderResults(providers, onProviderAdd) {
   const body  = document.getElementById('area-results-body');
   if (!panel || !body) return;
 
+  const title = document.getElementById('area-results-title');
+
   if (!providers.length) {
+    if (title) title.textContent = 'Providers';
+    _setExpanded(true);
     body.innerHTML = `<p class="area-results-empty">No providers found in this area. Try drawing a wider selection.</p>`;
     panel.hidden = false;
     return;
   }
 
-  const title = document.getElementById('area-results-title');
-  if (title) title.textContent = `${providers.length} Provider${providers.length !== 1 ? 's' : ''} Found`;
+  if (title) title.textContent = `Providers (${providers.length})`;
 
   body.innerHTML = providers.map(p => `
     <div class="area-result-card">
@@ -202,6 +240,7 @@ function _renderResults(providers, onProviderAdd) {
     });
   });
 
+  _setExpanded(true);
   panel.hidden = false;
 }
 
