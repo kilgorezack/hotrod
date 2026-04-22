@@ -11,8 +11,8 @@
  *   16–25 providers → orange (~28% of cells — high)
  *   26+   providers → red    (~27% of cells — very high)
  *
- * Overlays are built once on first show, then toggled via .visible so
- * the map doesn't have to re-parse all 918 polygons on every toggle.
+ * Overlays are built once on first show. Hide/show uses addOverlays/removeOverlays
+ * (same pattern as overlays.js) since overlay.visible doesn't force a map redraw.
  *
  * Completely independent of the existing provider coverage overlays —
  * toggling this layer does not affect anything else on the map.
@@ -22,11 +22,12 @@ import { h3ToGeoJSON } from './h3Resolution.js';
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-let _map          = null;
-let _overlays     = [];       // mapkit.PolygonOverlay[] — built once, reused
-let _overlaysBuilt = false;   // true after first successful _build()
-let _visible      = false;
-let _indexPromise = null;     // fetch cache
+let _map           = null;
+let _overlays      = [];       // mapkit.PolygonOverlay[] — built once, reused
+let _overlaysBuilt = false;    // true after first successful _build()
+let _onMap         = false;    // true while overlays are currently added to the map
+let _visible       = false;
+let _indexPromise  = null;     // fetch cache
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -73,10 +74,10 @@ async function _show() {
   if (!_map) return;
 
   if (!_overlaysBuilt) {
-    await _build();
-  } else {
-    // Overlays already exist on the map — just make them visible again
-    for (const ov of _overlays) ov.visible = true;
+    await _build();                    // _build() calls addOverlays and sets _onMap = true
+  } else if (!_onMap) {
+    _map.addOverlays(_overlays);       // re-add after a previous _hide() removed them
+    _onMap = true;
   }
 
   _visible = true;
@@ -128,11 +129,14 @@ async function _build() {
     _map.addOverlays(allOverlays);
     _overlays = allOverlays;
     _overlaysBuilt = true;
+    _onMap = true;
   }
 }
 
 function _hide() {
-  for (const ov of _overlays) ov.visible = false;
+  if (!_map || !_onMap) return;
+  _map.removeOverlays(_overlays);
+  _onMap = false;
   _visible = false;
 }
 
