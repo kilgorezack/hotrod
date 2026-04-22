@@ -18,18 +18,23 @@ let cachedData = null;
 let divisionStats = null;
 let searchTimeout = null;
 
+/** @type {Map<string, object>} name → provider object */
+const selectedProviders = new Map();
+
 // ─── DOM refs (set in initInsights) ──────────────────────────────────────────
 
 let insightsSearch;
 let insightsSearchResults;
 let insightsBody;
+let insightsChips;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 export async function initInsights() {
-  insightsSearch = document.getElementById('insights-search');
+  insightsSearch        = document.getElementById('insights-search');
   insightsSearchResults = document.getElementById('insights-search-results');
-  insightsBody = document.getElementById('insights-body');
+  insightsBody          = document.getElementById('insights-body');
+  insightsChips         = document.getElementById('insights-chips');
 
   initTabNav();
 
@@ -121,6 +126,123 @@ function providerDivisions(provider) {
     .map(([name]) => name);
 }
 
+// ─── Provider selection ───────────────────────────────────────────────────────
+
+function selectProvider(provider) {
+  insightsSearchResults.innerHTML = '';
+  insightsSearchResults.classList.remove('visible');
+  insightsSearch.value = '';
+
+  if (selectedProviders.has(provider.name)) return; // already selected
+
+  selectedProviders.set(provider.name, provider);
+  renderChips();
+  renderComparison();
+}
+
+function deselectProvider(name) {
+  selectedProviders.delete(name);
+  renderChips();
+  if (selectedProviders.size === 0) {
+    renderDivisionCards(divisionStats);
+  } else {
+    renderComparison();
+  }
+}
+
+function clearAllProviders() {
+  selectedProviders.clear();
+  insightsSearch.value = '';
+  insightsSearchResults.innerHTML = '';
+  insightsSearchResults.classList.remove('visible');
+  renderChips();
+  renderDivisionCards(divisionStats);
+}
+
+// ─── Rendering: chips ─────────────────────────────────────────────────────────
+
+function renderChips() {
+  if (!insightsChips) return;
+
+  if (selectedProviders.size === 0) {
+    insightsChips.innerHTML = '';
+    insightsChips.hidden = true;
+    return;
+  }
+
+  insightsChips.hidden = false;
+  insightsChips.innerHTML = [...selectedProviders.keys()].map(name => `
+    <span class="insights-chip">
+      <span class="insights-chip-label">${escapeHtml(name)}</span>
+      <button class="insights-chip-remove" data-name="${escapeHtml(name)}" aria-label="Remove ${escapeHtml(name)}">✕</button>
+    </span>
+  `).join('') + (selectedProviders.size > 1
+    ? `<button class="insights-chips-clear">Clear all</button>`
+    : '');
+
+  insightsChips.querySelectorAll('.insights-chip-remove').forEach(btn => {
+    btn.addEventListener('click', () => deselectProvider(btn.dataset.name));
+  });
+  insightsChips.querySelector('.insights-chips-clear')?.addEventListener('click', clearAllProviders);
+}
+
+// ─── Rendering: comparison view ───────────────────────────────────────────────
+
+function renderComparison() {
+  insightsBody.innerHTML = '';
+
+  const providers = [...selectedProviders.values()]
+    .sort((a, b) => (b.googleRating ?? 0) - (a.googleRating ?? 0));
+
+  const card = document.createElement('div');
+  card.className = 'insights-comparison-card';
+
+  card.innerHTML = `
+    <div class="insights-comparison-header">
+      <span class="insights-comparison-title">Google Ratings</span>
+      <span class="insights-comparison-hint">Sorted highest → lowest</span>
+    </div>
+    <div class="insights-comparison-list">
+      ${providers.map((p, i) => {
+        const ratingColor = ratingToColor(p.googleRating);
+        return `
+          <div class="insights-comparison-row">
+            <span class="insights-comparison-rank">${i + 1}</span>
+            <div class="insights-comparison-icon">${escapeHtml(p.name.charAt(0).toUpperCase())}</div>
+            <div class="insights-comparison-info">
+              <span class="insights-comparison-name">${escapeHtml(p.name)}</span>
+              ${p.medianMonthlyPriceUsd != null
+                ? `<span class="insights-comparison-price">$${p.medianMonthlyPriceUsd}/mo</span>`
+                : ''}
+            </div>
+            <div class="insights-comparison-rating">
+              ${p.googleRating != null ? `
+                <span class="insights-comparison-stars" style="color:${ratingColor}">${renderStars(p.googleRating)}</span>
+                <span class="insights-comparison-num" style="color:${ratingColor}">${p.googleRating.toFixed(1)}</span>
+              ` : `<span class="insights-stat-unavailable">N/A</span>`}
+            </div>
+          </div>
+          ${p.googleRating != null ? `
+            <div class="insights-rating-bar-track">
+              <div class="insights-rating-bar-fill" style="width:${(p.googleRating / 5) * 100}%;background:${ratingColor}"></div>
+            </div>
+          ` : ''}
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  insightsBody.appendChild(card);
+}
+
+function ratingToColor(rating) {
+  if (rating == null) return 'var(--text-muted)';
+  if (rating >= 4.0) return '#10b981'; // green
+  if (rating >= 3.0) return '#f59e0b'; // amber
+  if (rating >= 2.0) return '#f97316'; // orange
+  return '#ef4444';                    // red
+}
+
 // ─── Rendering: division cards ────────────────────────────────────────────────
 
 function renderDivisionCards(stats) {
@@ -156,50 +278,6 @@ function renderDivisionCards(stats) {
     `;
     insightsBody.appendChild(card);
   }
-}
-
-// ─── Rendering: single BSP card ───────────────────────────────────────────────
-
-function renderProviderCard(provider) {
-  insightsBody.innerHTML = '';
-
-  const divisions = providerDivisions(provider);
-  const initial = provider.name.charAt(0).toUpperCase();
-
-  const card = document.createElement('div');
-  card.className = 'insights-bsp-card';
-  card.innerHTML = `
-    <div class="insights-bsp-header">
-      <div class="insights-bsp-icon">${escapeHtml(initial)}</div>
-      <div class="insights-bsp-info">
-        <div class="insights-bsp-name">${escapeHtml(provider.name)}</div>
-        <div class="insights-bsp-divisions">${escapeHtml(divisions.join(' · ') || 'No division data')}</div>
-      </div>
-      <button class="btn-clear-insights" aria-label="Back to divisions">✕</button>
-    </div>
-    <div class="insights-stats-row">
-      <div class="insights-stat">
-        <span class="insights-stat-label">Google Rating</span>
-        <div class="insights-stat-value">
-          ${provider.googleRating != null
-            ? `<span class="insights-rating-stars" aria-hidden="true">${renderStars(provider.googleRating)}</span>
-               <span class="insights-rating-number">${provider.googleRating.toFixed(1)}</span>`
-            : `<span class="insights-stat-unavailable">N/A</span>`}
-        </div>
-      </div>
-      <div class="insights-stat">
-        <span class="insights-stat-label">Median Price / mo</span>
-        <div class="insights-stat-value">
-          ${provider.medianMonthlyPriceUsd != null
-            ? `<span>$${provider.medianMonthlyPriceUsd}</span>`
-            : `<span class="insights-stat-unavailable">N/A</span>`}
-        </div>
-      </div>
-    </div>
-  `;
-
-  card.querySelector('.btn-clear-insights').addEventListener('click', clearSearch);
-  insightsBody.appendChild(card);
 }
 
 // ─── Rendering: loading / error ───────────────────────────────────────────────
@@ -243,13 +321,16 @@ function handleSearchInput() {
 function showSearchResults(query) {
   const lower = query.toLowerCase();
   const matches = cachedData.providers.filter(p =>
-    p.name.toLowerCase().includes(lower)
+    p.name.toLowerCase().includes(lower) && !selectedProviders.has(p.name)
   );
 
   insightsSearchResults.innerHTML = '';
 
   if (!matches.length) {
-    insightsSearchResults.innerHTML = `<div class="search-no-results">No providers found for "${escapeHtml(query)}"</div>`;
+    const msg = cachedData.providers.some(p => p.name.toLowerCase().includes(lower))
+      ? `<div class="search-no-results">All matching providers are already selected.</div>`
+      : `<div class="search-no-results">No providers found for "${escapeHtml(query)}"</div>`;
+    insightsSearchResults.innerHTML = msg;
     insightsSearchResults.classList.add('visible');
     return;
   }
@@ -259,7 +340,15 @@ function showSearchResults(query) {
     item.className = 'search-result-item';
     item.setAttribute('role', 'option');
     item.setAttribute('tabindex', '0');
-    item.innerHTML = `<span class="result-name">${highlightMatch(p.name, query)}</span>`;
+
+    const ratingStr = p.googleRating != null
+      ? `<span class="result-rating" style="color:${ratingToColor(p.googleRating)}">★ ${p.googleRating.toFixed(1)}</span>`
+      : '';
+
+    item.innerHTML = `
+      <span class="result-name">${highlightMatch(p.name, query)}</span>
+      ${ratingStr}
+    `;
     item.addEventListener('click', () => selectProvider(p));
     item.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') selectProvider(p);
@@ -268,20 +357,6 @@ function showSearchResults(query) {
   }
 
   insightsSearchResults.classList.add('visible');
-}
-
-function selectProvider(provider) {
-  insightsSearchResults.innerHTML = '';
-  insightsSearchResults.classList.remove('visible');
-  insightsSearch.value = provider.name;
-  renderProviderCard(provider);
-}
-
-function clearSearch() {
-  insightsSearch.value = '';
-  insightsSearchResults.innerHTML = '';
-  insightsSearchResults.classList.remove('visible');
-  if (divisionStats) renderDivisionCards(divisionStats);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
