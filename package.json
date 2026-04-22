@@ -1,7 +1,7 @@
 {
   "name": "hotrod",
   "version": "0.1.0",
-  "description": "Hyperlocal Open-source Telecom Reach & Overbuild Dashboard",
+  "description": "Hyperlocal Overbuild & Telecom Reach Optimization Dashboard",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -19,12 +19,15 @@
 
 import { Hono } from 'hono';
 import { polygonToCells, latLngToCell, cellToParent, getResolution } from 'h3-js';
+// Static import — bundlers (Vercel nft, esbuild, Rollup) trace this automatically,
+// so the data is always available without any fs.readFile path-resolution tricks.
+import coverageIndexData from '../data/coverageIndex.js';
 
 const router = new Hono();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INDEX_RES          = 3; // resolution of coverage_index_r3.json
+const INDEX_RES          = 3; // resolution of coverageIndex.js
 const OVERLAP_RESOLUTION = 5; // fine resolution for exact overlap check (~252 km²)
 
 // Form 477 sub-codes → BDC codes (used only in Socrata fallback)
@@ -48,35 +51,6 @@ const STATE_NAMES = {
   'Vermont':'VT','Virginia':'VA','Washington':'WA','West Virginia':'WV',
   'Wisconsin':'WI','Wyoming':'WY','District of Columbia':'DC',
 };
-
-// ─── Coverage index (fast path) ───────────────────────────────────────────────
-
-let _coverageIndex     = null;
-let _coverageIndexDone = false;
-
-async function getCoverageIndex() {
-  if (_coverageIndexDone) return _coverageIndex;
-  _coverageIndexDone = true;
-  try {
-    const { readFileSync, existsSync } = await import('node:fs');
-    const { fileURLToPath }            = await import('node:url');
-    const pathMod                      = await import('node:path');
-    const HERE      = pathMod.default.dirname(fileURLToPath(import.meta.url));
-    const indexPath = pathMod.default.join(HERE, '..', 'data', 'coverage_index_r3.json');
-    if (existsSync(indexPath)) {
-      _coverageIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
-      console.info('[area-providers] coverage index loaded');
-    } else {
-      console.warn('[area-providers] coverage_index_r3.json not found — will use Socrata fallback');
-    }
-  } catch (err) {
-    console.warn('[area-providers] could not load coverage index:', err.message);
-  }
-  return _coverageIndex;
-}
-
-// Eager load on module init so it's ready by the first request
-getCoverageIndex().catch(() => {});
 
 // ─── Firebase helpers ─────────────────────────────────────────────────────────
 
@@ -231,21 +205,16 @@ router.post('/', async (c) => {
     return c.json({ error: `H3 conversion failed: ${err.message}` }, 400);
   }
 
-  // ── Fast path: local coverage index (no Firebase fetches needed) ──────────
+  // ── Fast path: static coverage index (no network calls needed) ───────────
   //
-  // The index was built directly from Firebase hex data, so a res-3 match IS
-  // confirmed coverage. We skip the per-candidate Firebase fetch entirely —
-  // that was the source of the timeout (100+ parallel HTTP requests).
-  //
-  // Res-3 cells are ~100 km across, so providers whose nearest hex is within
-  // ~50 km of the polygon boundary may appear. This is acceptable for an
-  // exploratory tool — the user adds them to the map and sees actual coverage.
-  const index = await getCoverageIndex();
-
-  if (index) {
+  // coverageIndexData is a statically-imported JS module built from Firebase
+  // hex data. A res-3 match IS confirmed coverage — no Firebase per-provider
+  // fetch needed. Res-3 cells are ~100 km across, so providers within ~50 km
+  // of the polygon boundary may appear; acceptable for an exploratory tool.
+  if (coverageIndexData) {
     const providerMap = new Map();
     for (const cell of r3cells) {
-      for (const { id, name, techs } of (index[cell] ?? [])) {
+      for (const { id, name, techs } of (coverageIndexData[cell] ?? [])) {
         if (!providerMap.has(id)) {
           providerMap.set(id, { providerId: id, providerName: name, techCodes: new Set(techs) });
         } else {

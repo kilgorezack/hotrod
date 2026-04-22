@@ -1,5 +1,5 @@
 /**
- * HOTROD — Hyperlocal Open-source Telecom Reach & Overbuild Dashboard
+ * HOTROD — Hyperlocal Overbuild & Telecom Reach Optimization Dashboard
  * Main application entry point
  */
 
