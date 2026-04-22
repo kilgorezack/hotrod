@@ -4,13 +4,17 @@
  * Given a drawn polygon, returns all broadband providers with confirmed
  * H3-cell coverage in that area.
  *
- * Pipeline:
- *   1. Convert polygon vertices → H3 res-5 cells (our index resolution)
- *   2. Reverse-geocode centroid via Nominatim → US state abbreviation
- *   3. Query FCC Form 477 (Socrata) for provider IDs in that state
- *   4. Intersect with Firebase providers.json → narrow to ~20–80 candidates
- *   5. For each candidate, fetch Firebase hex data + test res-5 overlap
- *   6. Return providers with confirmed coverage, sorted alphabetically
+ * Fast pipeline (uses pre-built local index):
+ *   1. Convert polygon → res-3 cells → look up candidates from coverage_index_r3.json
+ *   2. Convert polygon → res-5 cells (fine overlap resolution)
+ *   3. For each candidate (provider × tech), fetch Firebase hex + confirm res-5 overlap
+ *   4. Return confirmed providers sorted alphabetically
+ *
+ * Slow fallback (when index not available — first deploy before index is built):
+ *   Same as above but candidates come from FCC Form 477 / Socrata + Nominatim geocode.
+ *
+ * Regenerate the index after each FCC BDC data refresh:
+ *   FIREBASE_STORAGE_BUCKET=... node scripts/buildCoverageIndex.js
  */
 
 import { Hono } from 'hono';
@@ -20,11 +24,10 @@ const router = new Hono();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SOCRATA_BASE      = 'https://opendata.fcc.gov/resource';
-const FORM477_DATASET   = '4kuc-phrr';
-const NOMINATIM_BASE    = 'https://nominatim.openstreetmap.org/reverse';
-const OVERLAP_RESOLUTION = 5; // res-5 ≈ 252 km² per cell
+const INDEX_RES          = 3; // resolution of coverage_index_r3.json
+const OVERLAP_RESOLUTION = 5; // fine resolution for exact overlap check (~252 km²)
 
+// Form 477 sub-codes → BDC codes (used only in Socrata fallback)
 const FORM477_TO_BDC = {
   '11': '10', '12': '10', '20': '10', '30': '10',
   '41': '40', '43': '40',
@@ -46,17 +49,46 @@ const STATE_NAMES = {
   'Wisconsin':'WI','Wyoming':'WY','District of Columbia':'DC',
 };
 
+// ─── Coverage index (fast path) ───────────────────────────────────────────────
+
+let _coverageIndex     = null;
+let _coverageIndexDone = false;
+
+async function getCoverageIndex() {
+  if (_coverageIndexDone) return _coverageIndex;
+  _coverageIndexDone = true;
+  try {
+    const { readFileSync, existsSync } = await import('node:fs');
+    const { fileURLToPath }            = await import('node:url');
+    const pathMod                      = await import('node:path');
+    const HERE      = pathMod.default.dirname(fileURLToPath(import.meta.url));
+    const indexPath = pathMod.default.join(HERE, '..', 'data', 'coverage_index_r3.json');
+    if (existsSync(indexPath)) {
+      _coverageIndex = JSON.parse(readFileSync(indexPath, 'utf8'));
+      console.info('[area-providers] coverage index loaded');
+    } else {
+      console.warn('[area-providers] coverage_index_r3.json not found — will use Socrata fallback');
+    }
+  } catch (err) {
+    console.warn('[area-providers] could not load coverage index:', err.message);
+  }
+  return _coverageIndex;
+}
+
+// Eager load on module init so it's ready by the first request
+getCoverageIndex().catch(() => {});
+
 // ─── Firebase helpers ─────────────────────────────────────────────────────────
 
 function storageBucket() {
   return (process.env.FIREBASE_STORAGE_BUCKET || '').replace(/\/$/, '');
 }
 
-function storageUrl(path) {
-  return `https://firebasestorage.googleapis.com/v0/b/${storageBucket()}/o/${encodeURIComponent(path)}?alt=media`;
+function storageUrl(p) {
+  return `https://firebasestorage.googleapis.com/v0/b/${storageBucket()}/o/${encodeURIComponent(p)}?alt=media`;
 }
 
-let _fbProvidersCache = null;
+let _fbProvidersCache   = null;
 let _fbProvidersCacheAt = 0;
 
 async function getFirebaseProviderIndex() {
@@ -69,7 +101,7 @@ async function getFirebaseProviderIndex() {
     if (!res.ok) return new Map();
     const list = await res.json();
     const map = new Map(list.map(p => [String(p.id), p]));
-    _fbProvidersCache = map;
+    _fbProvidersCache   = map;
     _fbProvidersCacheAt = Date.now();
     return map;
   } catch {
@@ -92,10 +124,10 @@ async function fetchFirebaseHexArr(providerId, techCode) {
   }
 }
 
-// ─── Geocoding ────────────────────────────────────────────────────────────────
+// ─── Geocoding (Socrata fallback only) ────────────────────────────────────────
 
 async function reverseGeocodeState(lat, lng) {
-  const url = `${NOMINATIM_BASE}?format=json&lat=${lat}&lon=${lng}&addressdetails=1&zoom=5`;
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&zoom=5`;
   const res = await fetch(url, {
     headers: { 'User-Agent': 'HOTROD/1.0 broadband-map (https://github.com/kilgorezack/hotrod)' },
     signal: AbortSignal.timeout(6_000),
@@ -109,10 +141,10 @@ async function reverseGeocodeState(lat, lng) {
   return abbr;
 }
 
-// ─── FCC Form 477 provider list ────────────────────────────────────────────────
+// ─── FCC Form 477 (Socrata fallback only) ─────────────────────────────────────
 
 async function getForm477ProvidersForState(stateAbbr) {
-  const url = new URL(`${SOCRATA_BASE}/${FORM477_DATASET}.json`);
+  const url = new URL('https://opendata.fcc.gov/resource/4kuc-phrr.json');
   url.searchParams.set('$select', 'provider_id,providername,techcode');
   url.searchParams.set('$where',  `stateabbr = '${stateAbbr}'`);
   url.searchParams.set('$group',  'provider_id,providername,techcode');
@@ -125,7 +157,6 @@ async function getForm477ProvidersForState(stateAbbr) {
   if (!res.ok) throw new Error(`Socrata HTTP ${res.status}`);
   const rows = await res.json();
 
-  // Group rows by provider_id, mapping Form 477 sub-codes → BDC codes
   const map = new Map();
   for (const row of rows) {
     const id = row.provider_id;
@@ -137,31 +168,33 @@ async function getForm477ProvidersForState(stateAbbr) {
   return [...map.values()].map(p => ({ id: p.id, name: p.name, techs: [...p.techs] }));
 }
 
-// ─── H3 overlap check ─────────────────────────────────────────────────────────
+// ─── H3 helpers ───────────────────────────────────────────────────────────────
 
-function computePolygonCells(vertices) {
+/** Returns a Set of H3 cells at `resolution` that cover the polygon. */
+function computePolygonCellsAtRes(vertices, resolution) {
   const coords = vertices.map(v => [v.latitude, v.longitude]);
-  // Ensure ring is closed
-  const first = coords[0], last = coords[coords.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) coords.push(coords[0]);
+  if (coords[0][0] !== coords.at(-1)[0] || coords[0][1] !== coords.at(-1)[1]) {
+    coords.push(coords[0]);
+  }
 
   let cells;
   try {
-    cells = polygonToCells(coords, OVERLAP_RESOLUTION);
+    cells = polygonToCells(coords, resolution);
   } catch {
     cells = [];
   }
 
-  // Fallback: small polygon smaller than one res-5 cell → use centroid
+  // Fallback: polygon too small for the resolution → use centroid cell
   if (cells.length === 0) {
     const lat = vertices.reduce((s, v) => s + v.latitude,  0) / vertices.length;
     const lng = vertices.reduce((s, v) => s + v.longitude, 0) / vertices.length;
-    cells = [latLngToCell(lat, lng, OVERLAP_RESOLUTION)];
+    cells = [latLngToCell(lat, lng, resolution)];
   }
 
   return new Set(cells);
 }
 
+/** Returns true if any h3 in h3arr coarsens to one of the polygonCells (res-5). */
 function hexArrOverlaps(h3arr, polygonCells) {
   for (const h of h3arr) {
     if (!h) continue;
@@ -190,47 +223,72 @@ router.post('/', async (c) => {
     return c.json({ error: 'polygon must be ≥3 {latitude,longitude} points' }, 400);
   }
 
-  // 1. Convert polygon to H3 res-5 cells
-  let polygonCells;
+  // Compute polygon cells at both resolutions up front
+  let r3cells, r5cells;
   try {
-    polygonCells = computePolygonCells(polygon);
+    r3cells = computePolygonCellsAtRes(polygon, INDEX_RES);
+    r5cells = computePolygonCellsAtRes(polygon, OVERLAP_RESOLUTION);
   } catch (err) {
     return c.json({ error: `H3 conversion failed: ${err.message}` }, 400);
   }
 
-  // 2. Determine state via reverse geocoding
-  const cLat = polygon.reduce((s, v) => s + v.latitude,  0) / polygon.length;
-  const cLng = polygon.reduce((s, v) => s + v.longitude, 0) / polygon.length;
+  // ── Fast path: local coverage index ──────────────────────────────────────
+  const index = await getCoverageIndex();
+  let candidates;
+  let usedIndex = false;
 
-  let stateAbbr;
-  try {
-    stateAbbr = await reverseGeocodeState(cLat, cLng);
-  } catch (err) {
-    console.warn('[area-providers] geocode failed:', err.message);
-    return c.json({ error: `Could not determine location: ${err.message}` }, 422);
+  if (index) {
+    usedIndex = true;
+    const candidateMap = new Map();
+    for (const cell of r3cells) {
+      for (const { id, name, techs } of (index[cell] ?? [])) {
+        if (!candidateMap.has(id)) {
+          candidateMap.set(id, { id, name, techs: new Set(techs) });
+        } else {
+          for (const t of techs) candidateMap.get(id).techs.add(t);
+        }
+      }
+    }
+    candidates = [...candidateMap.values()]
+      .map(p => ({ id: p.id, name: p.name, techs: [...p.techs] }));
+
+    console.info(
+      `[area-providers] index lookup: ${r3cells.size} res-3 cells → ` +
+      `${candidates.length} candidates`
+    );
+  } else {
+    // ── Slow fallback: Nominatim + Socrata Form 477 ───────────────────────
+    const cLat = polygon.reduce((s, v) => s + v.latitude,  0) / polygon.length;
+    const cLng = polygon.reduce((s, v) => s + v.longitude, 0) / polygon.length;
+
+    let stateAbbr;
+    try {
+      stateAbbr = await reverseGeocodeState(cLat, cLng);
+    } catch (err) {
+      console.warn('[area-providers] geocode failed:', err.message);
+      return c.json({ error: `Could not determine location: ${err.message}` }, 422);
+    }
+
+    const [form477Providers, fbIndex] = await Promise.all([
+      getForm477ProvidersForState(stateAbbr).catch(err => {
+        console.error('[area-providers] Socrata error:', err.message);
+        return null;
+      }),
+      getFirebaseProviderIndex(),
+    ]);
+
+    if (!form477Providers) {
+      return c.json({ error: 'Failed to load provider list from FCC' }, 502);
+    }
+
+    candidates = form477Providers.filter(p => fbIndex.has(String(p.id)));
+    console.info(
+      `[area-providers] Socrata fallback (${stateAbbr}): ` +
+      `${form477Providers.length} → ${candidates.length} candidates`
+    );
   }
 
-  // 3 + 4. Get state providers from Form 477, intersect with Firebase index
-  const [form477Providers, fbIndex] = await Promise.all([
-    getForm477ProvidersForState(stateAbbr).catch(err => {
-      console.error('[area-providers] Socrata error:', err.message);
-      return null;
-    }),
-    getFirebaseProviderIndex(),
-  ]);
-
-  if (!form477Providers) {
-    return c.json({ error: 'Failed to load provider list from FCC' }, 502);
-  }
-
-  const candidates = form477Providers.filter(p => fbIndex.has(String(p.id)));
-
-  console.info(
-    `[area-providers] ${stateAbbr}: ${form477Providers.length} Form 477 → ` +
-    `${candidates.length} in Firebase, ${polygonCells.size} polygon cells`
-  );
-
-  // 5. Fetch each candidate's hex data and test overlap — all in parallel
+  // ── Exact overlap check: fetch each candidate's hex data ─────────────────
   const tasks = candidates.flatMap(p =>
     p.techs.map(tech => ({ id: p.id, name: p.name, tech }))
   );
@@ -238,12 +296,12 @@ router.post('/', async (c) => {
   const settled = await Promise.allSettled(
     tasks.map(async ({ id, name, tech }) => {
       const h3arr = await fetchFirebaseHexArr(id, tech);
-      if (!h3arr || !hexArrOverlaps(h3arr, polygonCells)) return null;
+      if (!h3arr || !hexArrOverlaps(h3arr, r5cells)) return null;
       return { providerId: id, providerName: name, techCode: tech };
     })
   );
 
-  // 6. Aggregate by provider
+  // Aggregate by provider
   const providerMap = new Map();
   for (const r of settled) {
     if (r.status !== 'fulfilled' || !r.value) continue;
@@ -258,16 +316,16 @@ router.post('/', async (c) => {
     .map(p => ({ ...p, techCodes: p.techCodes.sort((a, b) => Number(a) - Number(b)) }))
     .sort((a, b) => a.providerName.localeCompare(b.providerName));
 
+  const durationMs = Date.now() - start;
   console.info(
     `[area-providers] done — ${providers.length} providers with coverage, ` +
-    `${Date.now() - start}ms`
+    `${tasks.length} tasks, ${durationMs}ms (${usedIndex ? 'index' : 'socrata'})`
   );
 
   return c.json({
     providers,
-    state: stateAbbr,
-    polygonCells: polygonCells.size,
-    meta: { durationMs: Date.now() - start },
+    polygonCells: r5cells.size,
+    meta: { durationMs, source: usedIndex ? 'index' : 'socrata' },
   });
 });
 
