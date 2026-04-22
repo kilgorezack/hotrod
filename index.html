@@ -195,7 +195,7 @@
 
   <!-- ── Area Provider Search ───────────────────────────────────────────────── -->
 
-  <!-- Floating toolbar: polygon/lasso draw button -->
+  <!-- Floating toolbar -->
   <div id="map-toolbar" class="map-toolbar">
     <button id="area-search-btn" class="map-toolbar-btn"
       aria-label="Find providers in drawn area"
@@ -206,6 +206,27 @@
         <circle cx="9" cy="2.5" r="1.5" fill="currentColor"/>
       </svg>
     </button>
+    <button id="overbuild-btn" class="map-toolbar-btn"
+      aria-label="Toggle overbuild heatmap"
+      title="Provider competition heatmap">
+      <!-- Layered squares icon representing overlap/competition -->
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <rect x="2" y="2" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+        <rect x="7" y="7" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.25"/>
+        <rect x="7" y="7" width="4" height="4" fill="currentColor" fill-opacity="0.6"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Overbuild heatmap legend (shown when heatmap is active) -->
+  <div id="overbuild-legend" class="overbuild-legend" hidden aria-label="Overbuild heatmap legend">
+    <div class="overbuild-legend-title">Provider Competition</div>
+    <div class="overbuild-legend-items">
+      <div class="overbuild-legend-row"><span class="overbuild-swatch" style="background:#94a3b8"></span>1 provider</div>
+      <div class="overbuild-legend-row"><span class="overbuild-swatch" style="background:#fbbf24"></span>2 providers</div>
+      <div class="overbuild-legend-row"><span class="overbuild-swatch" style="background:#f97316"></span>3 providers</div>
+      <div class="overbuild-legend-row"><span class="overbuild-swatch" style="background:#ef4444"></span>4+ providers</div>
+    </div>
   </div>
 
   <!-- Draw mode hint bar (shown while drawing) -->

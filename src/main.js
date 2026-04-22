@@ -5,6 +5,7 @@
 
 import { initMap, fitMapToGeoJSON } from './map/init.js';
 import { initAreaSearch } from './ui/areaSearch.js';
+import { initOverbuildLayer, toggleOverbuildLayer, isOverbuildVisible } from './map/overbuildLayer.js';
 import { addCoverageOverlay, removeCoverageOverlay, toggleCoverageOverlay } from './map/overlays.js';
 import { initAddProvider, onProviderAdd } from './ui/addProvider.js';
 import { initInsights } from './ui/insights.js';
@@ -43,6 +44,8 @@ async function init() {
 
   if (mapInst) {
     initAreaSearch(mapInst, handleProviderAdd);
+    initOverbuildLayer(mapInst);
+    _initOverbuildToggle();
   }
 
   // Re-render all active providers at the appropriate H3 resolution when zoom changes.
@@ -72,6 +75,28 @@ async function init() {
   // Without the API, provider search/tech probing/tiles will fail and coverage
   // will show as "unavailable" with little context.
   checkApiHealth();
+}
+
+// ─── Overbuild heatmap toggle ─────────────────────────────────────────────────
+
+function _initOverbuildToggle() {
+  const btn    = document.getElementById('overbuild-btn');
+  const legend = document.getElementById('overbuild-legend');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      const nowVisible = await toggleOverbuildLayer();
+      btn.classList.toggle('active', nowVisible);
+      if (legend) legend.hidden = !nowVisible;
+    } catch (err) {
+      console.error('[overbuild]', err);
+      showToast('Failed to load overbuild heatmap.', 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ─── Provider Management ─────────────────────────────────────────────────────
