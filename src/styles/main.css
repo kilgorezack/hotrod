@@ -2,6 +2,9 @@
    HOTROD — Design System
    ========================================================= */
 
+/* Ensure [hidden] always wins over author display rules */
+[hidden] { display: none !important; }
+
 :root {
   /* Sidebar */
   --sidebar-width: 380px;
