@@ -51,7 +51,7 @@
 
 .overbuild-legend {
   position: fixed;
-  top: 64px;        /* below the 2-button toolbar (2 × 40px + 16px top + 8px gap) */
+  top: 112px;       /* below the 2-button toolbar: 16px top + 40px btn + 8px gap + 40px btn + 8px gap */
   right: 16px;
   z-index: 500;
   background: rgba(13, 17, 23, 0.92);
