@@ -81,9 +81,11 @@ function initTabNav() {
 // ─── Data loading ─────────────────────────────────────────────────────────────
 
 async function loadData() {
-  const res = await fetch('/data/bsp-stats.json');
+  const res = await fetch('/data/provider-ratings.json');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  // provider-ratings.json is a flat array; wrap to match expected shape
+  const providers = await res.json();
+  return { providers };
 }
 
 // ─── Stats computation ───────────────────────────────────────────────────────
