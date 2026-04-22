@@ -2,11 +2,17 @@
  * overbuildLayer.js — Provider competition heatmap.
  *
  * Loads the pre-built H3 res-3 coverage index and renders each cell
- * as a colored polygon based on how many providers serve it:
- *   1 provider  → slate  (monopoly)
- *   2 providers → amber  (duopoly)
- *   3 providers → orange (competitive)
- *   4+          → red    (highly competitive)
+ * as a colored polygon based on how many providers serve it.
+ *
+ * Thresholds are percentile-based on the actual distribution
+ * (918 cells, median = 17 providers/cell):
+ *   1–5   providers → slate  (~20% of cells — low competition)
+ *   6–15  providers → amber  (~25% of cells — moderate)
+ *   16–25 providers → orange (~28% of cells — high)
+ *   26+   providers → red    (~27% of cells — very high)
+ *
+ * Overlays are built once on first show, then toggled via .visible so
+ * the map doesn't have to re-parse all 918 polygons on every toggle.
  *
  * Completely independent of the existing provider coverage overlays —
  * toggling this layer does not affect anything else on the map.
@@ -17,7 +23,8 @@ import { h3ToGeoJSON } from './h3Resolution.js';
 // ─── Module state ─────────────────────────────────────────────────────────────
 
 let _map          = null;
-let _overlays     = [];       // mapkit.PolygonOverlay[]
+let _overlays     = [];       // mapkit.PolygonOverlay[] — built once, reused
+let _overlaysBuilt = false;   // true after first successful _build()
 let _visible      = false;
 let _indexPromise = null;     // fetch cache
 
@@ -65,6 +72,17 @@ async function _loadIndex() {
 async function _show() {
   if (!_map) return;
 
+  if (!_overlaysBuilt) {
+    await _build();
+  } else {
+    // Overlays already exist on the map — just make them visible again
+    for (const ov of _overlays) ov.visible = true;
+  }
+
+  _visible = true;
+}
+
+async function _build() {
   const index = await _loadIndex();
 
   // Group cells by provider count so we batch-create overlays per color tier
@@ -109,23 +127,21 @@ async function _show() {
   if (allOverlays.length) {
     _map.addOverlays(allOverlays);
     _overlays = allOverlays;
+    _overlaysBuilt = true;
   }
-
-  _visible = true;
 }
 
 function _hide() {
-  if (!_map || !_overlays.length) return;
-  try { _map.removeOverlays(_overlays); } catch { /* already removed */ }
-  _overlays = [];
-  _visible  = false;
+  for (const ov of _overlays) ov.visible = false;
+  _visible = false;
 }
 
 // ─── Color scale ──────────────────────────────────────────────────────────────
+// Thresholds based on real distribution — roughly even quartiles across 918 cells.
 
 function _styleForCount(count) {
-  if (count === 1) return { fill: '#94a3b8', stroke: '#94a3b8', fillOpacity: 0.18, strokeOpacity: 0.35 };
-  if (count === 2) return { fill: '#fbbf24', stroke: '#f59e0b', fillOpacity: 0.28, strokeOpacity: 0.50 };
-  if (count === 3) return { fill: '#f97316', stroke: '#ea580c', fillOpacity: 0.38, strokeOpacity: 0.60 };
-  /*  4+         */ return { fill: '#ef4444', stroke: '#dc2626', fillOpacity: 0.50, strokeOpacity: 0.70 };
+  if (count <=  5) return { fill: '#94a3b8', stroke: '#94a3b8', fillOpacity: 0.20, strokeOpacity: 0.35 };
+  if (count <= 15) return { fill: '#fbbf24', stroke: '#f59e0b', fillOpacity: 0.30, strokeOpacity: 0.50 };
+  if (count <= 25) return { fill: '#f97316', stroke: '#ea580c', fillOpacity: 0.40, strokeOpacity: 0.60 };
+  /*  26+        */ return { fill: '#ef4444', stroke: '#dc2626', fillOpacity: 0.52, strokeOpacity: 0.70 };
 }
