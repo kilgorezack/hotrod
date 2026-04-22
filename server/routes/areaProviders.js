@@ -16,10 +16,13 @@
 import { Hono } from 'hono';
 import { polygonToCells, latLngToCell } from 'h3-js';
 
-// Static import: works locally and in bundled environments that trace imports.
-// May be an empty object {} if the bundler didn't include the file — that's fine,
-// we fall back to the GitHub CDN fetch below.
-import _staticIndex from '../data/coverageIndex.js';
+// Primary: JSON import attribute — esbuild (used by Vercel) always inlines this
+// as a parsed object, so it's bundled directly with no fs or network access.
+// 'with { type: "json" }' is supported in Node.js 20.10+/22+ and esbuild 0.21+.
+import _jsonIndex from '../data/coverage_index_r3.json' with { type: 'json' };
+
+// Secondary: JS module static import — works in local dev and Cloudflare Workers.
+import _jsIndex from '../data/coverageIndex.js';
 
 const router = new Hono();
 
@@ -27,19 +30,27 @@ const router = new Hono();
 
 const INDEX_RES = 3; // resolution of the coverage index (~100 km cells)
 
-// URL of the JSON version, committed to the public repo — always fresh,
-// no auth required, works from any serverless environment.
+// Tertiary: GitHub raw CDN — final fallback when neither bundled source is available.
 const INDEX_CDN_URL = 'https://raw.githubusercontent.com/kilgorezack/hotrod/main/server/data/coverage_index_r3.json';
 
 // ─── Index loader ─────────────────────────────────────────────────────────────
 
-let _remoteIndex      = null;
-let _remoteIndexFetch = null; // in-flight promise, prevents duplicate fetches
+function _indexValid(obj) {
+  return obj && typeof obj === 'object' && Object.keys(obj).length > 0;
+}
 
-function _staticIndexValid() {
-  // The static import gives us a real object with >0 keys when bundled correctly.
-  // An empty object {} means the bundler didn't include the file.
-  return _staticIndex && typeof _staticIndex === 'object' && Object.keys(_staticIndex).length > 0;
+let _remoteIndex      = null;
+let _remoteIndexFetch = null;
+
+function _fetchWithTimeout(url, ms) {
+  // Use Promise.race + setTimeout instead of AbortSignal.timeout —
+  // AbortSignal.timeout is unreliable in some Lambda/Node.js environments.
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`fetch timeout after ${ms}ms`)), ms);
+    fetch(url)
+      .then(r => { clearTimeout(timer); resolve(r); })
+      .catch(e => { clearTimeout(timer); reject(e); });
+  });
 }
 
 async function _fetchRemoteIndex() {
@@ -49,13 +60,14 @@ async function _fetchRemoteIndex() {
   _remoteIndexFetch = (async () => {
     try {
       console.info('[area-providers] fetching coverage index from CDN…');
-      const res = await fetch(INDEX_CDN_URL, { signal: AbortSignal.timeout(12_000) });
+      const res = await _fetchWithTimeout(INDEX_CDN_URL, 10_000);
       if (!res.ok) throw new Error(`CDN HTTP ${res.status}`);
       _remoteIndex = await res.json();
       console.info('[area-providers] coverage index loaded from CDN');
       return _remoteIndex;
     } catch (err) {
       console.error('[area-providers] CDN index fetch failed:', err.message);
+      _remoteIndexFetch = null; // allow retry on next request
       return null;
     }
   })();
@@ -64,14 +76,24 @@ async function _fetchRemoteIndex() {
 }
 
 async function getIndex() {
-  if (_staticIndexValid()) return _staticIndex;
+  // Try bundled sources first (no network, instant)
+  if (_indexValid(_jsonIndex)) return _jsonIndex;
+  if (_indexValid(_jsIndex))   return _jsIndex;
+  // Fall back to CDN fetch (one-time per Lambda instance, ~200ms)
   return _fetchRemoteIndex();
 }
 
-// Warm up on module init so cold starts don't add latency to the first request
-if (!_staticIndexValid()) {
+// Warm up on module init: if neither bundled index is available, start the CDN
+// fetch in the background so it's ready before the first request arrives.
+if (!_indexValid(_jsonIndex) && !_indexValid(_jsIndex)) {
   _fetchRemoteIndex().catch(() => {});
 }
+
+console.info(
+  '[area-providers] index source:',
+  _indexValid(_jsonIndex) ? 'json-import' :
+  _indexValid(_jsIndex)   ? 'js-import'   : 'cdn-fetch-pending',
+);
 
 // ─── H3 helpers ───────────────────────────────────────────────────────────────
 
@@ -141,7 +163,7 @@ router.post('/', async (c) => {
     .sort((a, b) => a.providerName.localeCompare(b.providerName));
 
   const durationMs = Date.now() - start;
-  const source = _staticIndexValid() ? 'static' : 'cdn';
+  const source = _indexValid(_jsonIndex) ? 'json' : _indexValid(_jsIndex) ? 'js' : 'cdn';
   console.info(
     `[area-providers] ${source}: ${r3cells.size} cells → ${providers.length} providers, ${durationMs}ms`
   );
