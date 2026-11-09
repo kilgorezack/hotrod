@@ -18,22 +18,26 @@ export async function initMap() {
   // Wait for MapKit CDN (+ all libraries) to signal ready
   await mapKitReady;
 
-  // Validate token looks like a JWT (three base64url parts separated by dots)
-  const isValidJwt = MAPKIT_TOKEN && MAPKIT_TOKEN.split('.').length === 3;
+  // Prefer a fresh token signed by the server; fall back to the build-time one
+  // only while it is still valid (an expired baked-in JWT renders a blank grid).
+  const serverToken = await fetchServerToken();
+  const bakedToken = isUsableJwt(MAPKIT_TOKEN) ? MAPKIT_TOKEN : null;
 
-  if (!isValidJwt) {
+  if (!serverToken && !bakedToken) {
     console.warn(
-      '[HOTROD] MAPKIT_TOKEN is missing or not a valid JWT.\n' +
-      'Run: node scripts/generate-token.js --key ... --team-id ... --key-id ...\n' +
-      'Then paste the output into your .env file and restart the dev server.'
+      '[HOTROD] No usable MapKit token. MAPKIT_TOKEN is missing or expired and ' +
+      '/api/mapkit-token is not configured (set MAPKIT_PRIVATE_KEY, MAPKIT_TEAM_ID, MAPKIT_KEY_ID).'
     );
-    showMapTokenWarning();
+    showMapTokenWarning(isJwtShape(MAPKIT_TOKEN));
     return null;
   }
 
+  let first = serverToken || bakedToken;
   mapkit.init({
     authorizationCallback: (done) => {
-      done(MAPKIT_TOKEN);
+      // MapKit calls this again whenever the current token expires.
+      if (first) { const t = first; first = null; done(t); return; }
+      fetchServerToken().then((t) => done(t || bakedToken || ''));
     },
   });
 
@@ -95,7 +99,34 @@ export function fitMapToGeoJSON(geojson) {
   map.setRegionAnimated(region, true);
 }
 
-function showMapTokenWarning() {
+async function fetchServerToken() {
+  try {
+    const res = await fetch('/api/mapkit-token', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const token = (await res.text()).trim();
+    return isUsableJwt(token) ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+function isJwtShape(token) {
+  return !!token && token.split('.').length === 3;
+}
+
+/** True if the token is a JWT whose exp claim is more than a minute away. */
+function isUsableJwt(token) {
+  if (!isJwtShape(token)) return false;
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
+    return !exp || exp * 1000 > Date.now() + 60_000;
+  } catch {
+    return false;
+  }
+}
+
+function showMapTokenWarning(expired = false) {
   const mapEl = document.getElementById('map');
   if (!mapEl) return;
   mapEl.innerHTML = `
@@ -108,10 +139,11 @@ function showMapTokenWarning() {
         <circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2"/>
         <path d="M24 14v14M24 34v2" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
-      <p style="font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:8px">MapKit JS token required</p>
-      <p style="font-size:13px;max-width:300px;line-height:1.6">
-        Add your Apple MapKit JS token to <code style="color:#5865f2">.env</code> as
-        <code style="color:#5865f2">MAPKIT_TOKEN=…</code> and restart.
+      <p style="font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:8px">${expired ? 'MapKit JS token expired' : 'MapKit JS token required'}</p>
+      <p style="font-size:13px;max-width:320px;line-height:1.6">
+        Set <code style="color:#5865f2">MAPKIT_PRIVATE_KEY</code>, <code style="color:#5865f2">MAPKIT_TEAM_ID</code>
+        and <code style="color:#5865f2">MAPKIT_KEY_ID</code> on the server so tokens are signed on demand,
+        or rebuild with a fresh <code style="color:#5865f2">MAPKIT_TOKEN</code>.
       </p>
       <a
         href="https://developer.apple.com/documentation/mapkitjs/creating-a-maps-token"

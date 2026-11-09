@@ -15,6 +15,7 @@ import geoRouter           from '../server/routes/geo.js';
 import tilesRouter         from '../server/routes/tiles.js';
 import areaProvidersRouter from '../server/routes/areaProviders.js';
 import { getAllCounties } from '../server/services/counties.js';
+import { getMapkitToken }  from '../server/services/mapkitToken.js';
 
 const app = new Hono();
 
@@ -32,6 +33,20 @@ app.route('/api/coverage',        coverageRouter);
 app.route('/api/geo',             geoRouter);
 app.route('/api/tiles',           tilesRouter);
 app.route('/api/area-providers',  areaProvidersRouter);
+
+// Fresh, short-lived MapKit JS token (avoids shipping an expiring build-time JWT)
+app.get('/api/mapkit-token', async (c) => {
+  try {
+    const origin = c.req.header('origin') || '';
+    const token = await getMapkitToken(c.env, origin);
+    if (!token) return c.json({ error: 'MapKit signing key not configured' }, 503);
+    c.header('Cache-Control', 'no-store');
+    return c.text(token);
+  } catch (err) {
+    console.error('[mapkit-token]', err.message);
+    return c.json({ error: 'Failed to sign MapKit token', detail: err.message }, 500);
+  }
+});
 
 app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
