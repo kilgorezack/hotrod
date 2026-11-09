@@ -59,7 +59,7 @@ export async function getMapkitToken(env, origin) {
   }
 
   const header = { alg: 'ES256', kid: keyId, typ: 'JWT' };
-  const payload = { iss: teamId, iat: now, exp: now + TOKEN_TTL_SECONDS };
+  const payload = { iss: teamId, iat: now, exp: now + TOKEN_TTL_SECONDS, sub: 'maps-scope' };
   if (origin) payload.origin = origin;
 
   const signingInput = `${b64urlJson(header)}.${b64urlJson(payload)}`;
