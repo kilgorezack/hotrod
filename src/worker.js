@@ -44,7 +44,7 @@ app.get('/api/mapkit-token', async (c) => {
     return c.text(token);
   } catch (err) {
     console.error('[mapkit-token]', err.message);
-    return c.json({ error: 'Failed to sign MapKit token', detail: err.message }, 500);
+    return c.json({ error: 'Failed to sign MapKit token — check MAPKIT_* env vars' }, 500);
   }
 });
 

@@ -52,14 +52,20 @@ export function readMapkitEnv(env = {}) {
 export async function getMapkitToken(env, origin) {
   const { privateKey, teamId, keyId } = readMapkitEnv(env);
   if (!privateKey || !teamId || !keyId) return null;
+  // Team ID and Key ID go into the (public) token, so refuse anything that isn't
+  // a 10-char Apple ID — e.g. a private key pasted into the wrong variable.
+  const ID_RE = /^[A-Z0-9]{10}$/;
+  if (!ID_RE.test(teamId.trim()) || !ID_RE.test(keyId.trim())) {
+    throw new Error('MAPKIT_TEAM_ID and MAPKIT_KEY_ID must each be a 10-character Apple ID');
+  }
 
   const now = Math.floor(Date.now() / 1000);
   if (cachedToken && cachedToken.origin === (origin || '') && cachedToken.exp - now > 300) {
     return cachedToken.token;
   }
 
-  const header = { alg: 'ES256', kid: keyId, typ: 'JWT' };
-  const payload = { iss: teamId, iat: now, exp: now + TOKEN_TTL_SECONDS, sub: 'maps-scope' };
+  const header = { alg: 'ES256', kid: keyId.trim(), typ: 'JWT' };
+  const payload = { iss: teamId.trim(), iat: now, exp: now + TOKEN_TTL_SECONDS, sub: 'maps-scope' };
   if (origin) payload.origin = origin;
 
   const signingInput = `${b64urlJson(header)}.${b64urlJson(payload)}`;
